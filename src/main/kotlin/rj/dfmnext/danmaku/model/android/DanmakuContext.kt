@@ -41,7 +41,7 @@ class DanmakuContext {
     private var mIsMaxLinesLimited: Boolean = false
     private var mIsPreventOverlappingEnabled: Boolean = false
 
-    private val mDisplayer: AbsDisplayer = AndroidDisplayer()
+    private val mDisplayer: AbsDisplayer by lazy { AndroidDisplayer() }
 
     val mGlobalFlagValues: GlobalFlagValues = GlobalFlagValues()
     val mDanmakuFilters: DanmakuFilters = DanmakuFilters()

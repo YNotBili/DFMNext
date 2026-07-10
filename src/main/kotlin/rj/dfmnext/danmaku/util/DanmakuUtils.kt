@@ -1,6 +1,5 @@
 package rj.dfmnext.danmaku.util
 
-import android.text.TextUtils
 import rj.dfmnext.danmaku.model.AbsDisplayer
 import rj.dfmnext.danmaku.model.BaseDanmaku
 import rj.dfmnext.danmaku.model.IDisplayer
@@ -76,8 +75,8 @@ object DanmakuUtils {
 
     fun isDuplicate(obj1: BaseDanmaku, obj2: BaseDanmaku): Boolean {
         if (obj1 === obj2) return false
-        if (obj1.text === obj2.text) return true
-        return obj1.text != null && obj1.text == obj2.text
+        if (obj1.text == null || obj2.text == null) return false
+        return obj1.text === obj2.text || obj1.text == obj2.text
     }
 
     fun compare(obj1: BaseDanmaku, obj2: BaseDanmaku): Int {
@@ -116,7 +115,7 @@ object DanmakuUtils {
 
     fun fillText(danmaku: BaseDanmaku, text: CharSequence?) {
         danmaku.text = text
-        if (TextUtils.isEmpty(text) || !text.toString().contains(BaseDanmaku.DANMAKU_BR_CHAR)) return
+        if (text.isNullOrEmpty() || !text.toString().contains(BaseDanmaku.DANMAKU_BR_CHAR)) return
 
         val lines = danmaku.text.toString().split(BaseDanmaku.DANMAKU_BR_CHAR).toTypedArray()
         if (lines.size > 1) {
