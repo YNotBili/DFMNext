@@ -117,7 +117,7 @@ class DanmakuView @JvmOverloads constructor(
         if (handlerThread != null) {
             mHandlerThread = null
             try {
-                handlerThread.join()
+                handlerThread.join(500)
             } catch (e: InterruptedException) {
                 e.printStackTrace()
             }

@@ -43,7 +43,7 @@ class DanmakuFilters {
             danmaku: BaseDanmaku, index: Int, totalsizeInScreen: Int,
             timer: DanmakuTimer?, fromCachingTask: Boolean, config: DanmakuContext
         ): Boolean {
-            val filtered = danmaku != null && mFilterTypes.contains(danmaku.getType())
+            val filtered = mFilterTypes.contains(danmaku.getType())
             if (filtered) {
                 danmaku.mFilterParam = danmaku.mFilterParam or FILTER_TYPE_TYPE
             }
@@ -72,7 +72,7 @@ class DanmakuFilters {
             val startTime = SystemClock.uptimeMillis()
             while (it.hasNext()) {
                 try {
-                    val item = it.next()
+            val item = it.next()
                     if (item?.isTimeOut() == true) {
                         it.remove()
                     } else {
@@ -175,7 +175,7 @@ class DanmakuFilters {
 
         override fun filter(
             danmaku: BaseDanmaku, index: Int, totalsizeInScreen: Int,
-            timer: DanmakuTimer?, willHit: Boolean, config: DanmakuContext
+            timer: DanmakuTimer?, fromCachingTask: Boolean, config: DanmakuContext
         ): Boolean {
             var filtered = false
             if (mMaximumLinesPairs != null) {
@@ -203,12 +203,12 @@ class DanmakuFilters {
 
         override fun filter(
             danmaku: BaseDanmaku, index: Int, totalsizeInScreen: Int,
-            timer: DanmakuTimer?, willHit: Boolean, config: DanmakuContext
+            timer: DanmakuTimer?, fromCachingTask: Boolean, config: DanmakuContext
         ): Boolean {
             var filtered = false
             if (mEnabledPairs != null) {
                 val enabledValue = mEnabledPairs!![danmaku.getType()]
-                filtered = enabledValue != null && enabledValue && willHit
+                filtered = enabledValue != null && enabledValue && fromCachingTask
                 if (filtered) {
                     danmaku.mFilterParam = danmaku.mFilterParam or FILTER_TYPE_OVERLAPPING
                 }
@@ -269,9 +269,6 @@ class DanmakuFilters {
     fun registerFilter(tag: String): IDanmakuFilter<*>? = registerFilter(tag, true)
 
     fun registerFilter(tag: String, primary: Boolean): IDanmakuFilter<*>? {
-        if (tag == null) {
-            return null
-        }
         var filter = filters[tag]
         if (filter == null) {
             filter = when (tag) {

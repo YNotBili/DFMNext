@@ -44,9 +44,9 @@ open class R2LDanmaku(duration: Duration) : BaseDanmaku() {
         return displayer.width - elapsedTime * mStepX
     }
 
-    override fun getRectAtTime(displayer: IDisplayer, time: Long): FloatArray? {
+    override fun getRectAtTime(displayer: IDisplayer, currTime: Long): FloatArray? {
         if (!isMeasured()) return null
-        val left = getAccurateLeft(displayer, time)
+        val left = getAccurateLeft(displayer, currTime)
         if (RECT == null) RECT = FloatArray(4)
         RECT!![0] = left
         RECT!![1] = y

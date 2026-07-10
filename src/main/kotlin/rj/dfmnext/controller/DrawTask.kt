@@ -60,7 +60,6 @@ open class DrawTask(
     }
 
     init {
-        requireNotNull(mContext) { "context is null" }
         mRenderer.setOnDanmakuShownListener(object : IRenderer.OnDanmakuShownListener {
             override fun onDanmakuShown(danmaku: BaseDanmaku) {
                 mTaskListener?.onDanmakuShown(danmaku)
@@ -69,12 +68,10 @@ open class DrawTask(
         mRenderer.setVerifierEnabled(mContext.isPreventOverlappingEnabled() || mContext.isMaxLinesLimited())
         initTimer(timer)
         val enable = mContext.isDuplicateMergingEnabled()
-        if (enable != null) {
-            if (enable) {
-                mContext.mDanmakuFilters.registerFilter(DanmakuFilters.TAG_DUPLICATE_FILTER)
-            } else {
-                mContext.mDanmakuFilters.unregisterFilter(DanmakuFilters.TAG_DUPLICATE_FILTER)
-            }
+        if (enable) {
+            mContext.mDanmakuFilters.registerFilter(DanmakuFilters.TAG_DUPLICATE_FILTER)
+        } else {
+            mContext.mDanmakuFilters.unregisterFilter(DanmakuFilters.TAG_DUPLICATE_FILTER)
         }
     }
 
@@ -144,11 +141,11 @@ open class DrawTask(
 
     @Synchronized
     override fun removeAllLiveDanmakus() {
-        if (danmakus == null || danmakus.isEmpty()) return
+        if (danmakus.isEmpty()) return
         synchronized(danmakus) {
             val it = danmakus.iterator()
             while (it.hasNext()) {
-                val danmaku = it.next() ?: continue
+                val danmaku = it.next()
                 if (danmaku.isLive) {
                     it.remove()
                     onDanmakuRemoved(danmaku)
@@ -201,7 +198,7 @@ open class DrawTask(
     }
 
     override fun reset() {
-        if (danmakus != null) danmakus = Danmakus()
+        danmakus = Danmakus()
         mRenderer.clear()
     }
 
@@ -211,10 +208,8 @@ open class DrawTask(
         mContext.mGlobalFlagValues.updateVisibleFlag()
         mContext.mGlobalFlagValues.updateFirstShownFlag()
         mStartRenderTime = if (mills < 1000) 0 else mills
-        if (mRenderingState != null) {
-            mRenderingState.reset()
-            mRenderingState.endTime = mStartRenderTime
-        }
+        mRenderingState.reset()
+        mRenderingState.endTime = mStartRenderTime
         if (danmakuList != null) {
             val last = danmakuList!!.last()
             if (last != null && !last.isTimeOut()) {
@@ -297,7 +292,7 @@ open class DrawTask(
                 beginMills = mLastBeginMills
                 endMills = mLastEndMills
             }
-            if (danmakus != null && !danmakus.isEmpty()) {
+            if (!danmakus.isEmpty()) {
                 val renderingState = mRenderer.draw(mDisp, danmakus, mStartRenderTime).also { mRenderingState = it }
                 if (renderingState.nothingRendered) {
                     if (mLastDanmaku != null && mLastDanmaku!!.isTimeOut()) {

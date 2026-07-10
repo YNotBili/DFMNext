@@ -72,11 +72,7 @@ class Danmakus : IDanmakus {
             mSortType = ST_BY_LIST
         }
         mSize = targetItems.size
-        if (iterator == null) {
-            iterator = DanmakuIterator(targetItems)
-        } else {
-            iterator.setDatas(targetItems)
-        }
+        iterator.setDatas(targetItems)
     }
 
     override fun iterator(): MutableIterator<BaseDanmaku> {
@@ -170,7 +166,7 @@ class Danmakus : IDanmakus {
     private class SentinelDanmaku(text: String) : BaseDanmaku() {
         init { DanmakuUtils.fillText(this, text) }
         override fun layout(displayer: IDisplayer, x: Float, y: Float) {}
-        override fun getRectAtTime(displayer: IDisplayer, time: Long): FloatArray? = null
+        override fun getRectAtTime(displayer: IDisplayer, currTime: Long): FloatArray? = null
         override fun getLeft(): Float = 0f
         override fun getTop(): Float = 0f
         override fun getRight(): Float = 0f
@@ -199,7 +195,7 @@ class Danmakus : IDanmakus {
         val currentItems = items ?: return null
         if (currentItems.isEmpty()) return null
         return when {
-            mSortType == ST_BY_LIST -> (currentItems as List<BaseDanmaku>)[0]
+            mSortType == ST_BY_LIST -> (@Suppress("UNCHECKED_CAST") currentItems as List<BaseDanmaku>)[0]
             else -> (currentItems as java.util.SortedSet<BaseDanmaku>).first()
         }
     }
@@ -208,7 +204,7 @@ class Danmakus : IDanmakus {
         val currentItems = items ?: return null
         if (currentItems.isEmpty()) return null
         return when {
-            mSortType == ST_BY_LIST -> (currentItems as List<BaseDanmaku>)[currentItems.size - 1]
+            mSortType == ST_BY_LIST -> (@Suppress("UNCHECKED_CAST") currentItems as List<BaseDanmaku>)[currentItems.size - 1]
             else -> (currentItems as java.util.SortedSet<BaseDanmaku>).last()
         }
     }

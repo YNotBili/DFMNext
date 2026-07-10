@@ -1,0 +1,115 @@
+# DFMNext
+
+纯 Kotlin 实现的 Android 弹幕渲染引擎，从 DanmakuFlameMaster 现代化重写而来。零运行时依赖，仅使用 Android SDK 原生 API。
+
+## 特性
+
+- **5 种弹幕类型** — R2L 滚动、L2R 滚动、顶部固定、底部固定、特殊动画（位移/透明度/3D 旋转/路径动画）
+- **Bitmap 缓存** — 独立线程预渲染，LRU 淘汰，引用计数共享，超大弹幕自动分块
+- **滤镜系统** — 类型过滤、重复合并 (xN)、最大行数限制、防重叠
+- **碰撞避让** — 按类型的智能排版，滚动弹幕检测时间窗口内碰撞
+- **触摸响应** — 点击命中测试，支持返回单条或所有触碰弹幕
+- **倍速播放** — `setSpeed(Float)` 变速不丢时间
+- **FPS 调试** — `showFPS(true)` 实时帧率/缓存命中统计
+
+## 快速开始
+
+```kotlin
+// 1. 配置
+val context = DanmakuContext.create().apply {
+    setDanmakuTransparency(0.8f)
+    setScaleTextSize(1.2f)
+    setMaximumLines(mapOf(BaseDanmaku.TYPE_SCROLL_RL to 8))
+    setDuplicateMergingEnabled(true)
+}
+
+// 2. 解析弹幕数据
+val parser = BiliDanmakuParser()
+parser.load(AndroidFileSource(inputStream))
+parser.setConfig(context)
+val danmakus = parser.getDanmakus()
+
+// 3. 绑定 View
+val danmakuView = findViewById<DanmakuView>(R.id.danmaku_view)
+danmakuView.setCallback(object : DrawHandler.Callback {
+    override fun prepared() {
+        danmakuView.start()
+    }
+    override fun updateTimer(timer: DanmakuTimer) {}
+    override fun danmakuShown(danmaku: BaseDanmaku) {}
+    override fun drawingFinished() {}
+})
+danmakuView.prepare(parser, context)
+
+// 4. 添加实时弹幕
+val d = DanmakuFactory.createDanmaku(BaseDanmaku.TYPE_SCROLL_RL, context)
+d.text = "Hello World"
+d.textColor = Color.WHITE
+d.textSize = 25f
+d.setTime(danmakuView.currentTime)
+danmakuView.addDanmaku(d)
+```
+
+## 解析器
+
+| 解析器 | 格式 |
+|---|---|
+| `BiliDanmakuParser` | Bilibili XML (`<d p="...">text</d>`) |
+| `BiliProtobufDanmakuParser` | Bilibili Protobuf（反射解析） |
+| `SpecialDanmakuParser` | 特殊弹幕 JSON 数组 |
+
+自定义解析器：继承 `BaseDanmakuParser`，实现 `parse(): IDanmakus?`，用 `DanmakuFactory.createDanmaku()` 创建弹幕实例。
+
+## 渲染样式
+
+```kotlin
+context.getDisplayer().apply {
+    setDanmakuStyle(AndroidDisplayer.DANMAKU_STYLE_STROKE, floatArrayOf(3.5f))  // 描边
+    setDanmakuStyle(AndroidDisplayer.DANMAKU_STYLE_SHADOW, floatArrayOf(4f))    // 阴影
+    setDanmakuStyle(AndroidDisplayer.DANMAKU_STYLE_PROJECTION, floatArrayOf(2f, 2f, 0.5f)) // 投影
+    setTypeFace(typeface)
+    setFakeBoldText(true)
+}
+```
+
+## CacheStuffer
+
+默认 `SimpleTextCacheStuffer` 渲染纯文本。如需 HTML 富文本（`Spanned`），换用 `SpannedCacheStuffer`：
+
+```kotlin
+context.getDisplayer().setCacheStuffer(SpannedCacheStuffer(), null)
+```
+
+继承 `BaseCacheStuffer` 可自定义背景/描边/文字绘制逻辑。
+
+## 架构
+
+```
+DanmakuView (View.onDraw)
+  → DrawHandler.draw(Canvas)
+    → IDrawTask.draw()
+      → DanmakuRenderer
+        → DanmakuFilters (过滤)
+        → DanmakusRetainer (排版避让)
+        → BaseDanmaku.draw() (渲染/缓存)
+```
+
+## 包结构
+
+```
+rj.dfmnext/
+  ui/widget/         DanmakuView, DanmakuTouchHelper
+  controller/        DrawHandler, DrawTask, CacheManagingDrawTask, DanmakuFilters
+  danmaku/model/     弹幕类型、Timer、Duration、对象池
+  danmaku/parser/    XML/Protobuf/JSON 解析器
+  danmaku/renderer/  渲染器、碰撞避让
+  danmaku/util/      扩展函数、工具类
+```
+
+## 依赖
+
+运行时无外部依赖。测试使用 JUnit 5。
+
+## License
+
+基于 DanmakuFlameMaster 重写。

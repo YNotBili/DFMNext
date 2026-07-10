@@ -54,7 +54,7 @@ class DrawHandler(
     }
 
     private var pausedPosition = 0L
-    private var quitFlag = true
+    @Volatile private var quitFlag = true
     private var mTimeBase = 0L
     private var mReady = false
     private var mCallback: Callback? = null
@@ -264,7 +264,7 @@ class DrawHandler(
             mDrawTaskMonitor.notifyAll()
         }
         try {
-            thread.join()
+            thread.join(500)
         } catch (e: InterruptedException) {
             e.printStackTrace()
         }

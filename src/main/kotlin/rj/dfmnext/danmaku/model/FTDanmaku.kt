@@ -41,7 +41,7 @@ open class FTDanmaku(duration: Duration) : BaseDanmaku() {
         return left
     }
 
-    override fun getRectAtTime(displayer: IDisplayer, time: Long): FloatArray? {
+    override fun getRectAtTime(displayer: IDisplayer, currTime: Long): FloatArray? {
         if (!isMeasured()) return null
         val left = getLeft(displayer)
         if (RECT == null) RECT = FloatArray(4)

@@ -77,7 +77,6 @@ class DanmakuFactory protected constructor() {
     }
 
     fun createDanmaku(type: Int, disp: IDisplayer, viewportScale: Float, scrollSpeedFactor: Float): BaseDanmaku? {
-        if (disp == null) return null
         sLastDisp = disp
         return createDanmaku(type, disp.width, disp.height, viewportScale, scrollSpeedFactor)
     }

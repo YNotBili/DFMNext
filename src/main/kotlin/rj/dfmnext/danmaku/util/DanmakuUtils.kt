@@ -59,14 +59,12 @@ object DanmakuUtils {
             false
         )
         val holder = drawingCache.get()
-        if (holder != null) {
-            (disp as AbsDisplayer).drawDanmaku(danmaku, holder.canvas!!, 0f, 0f, true)
-            if (disp.isHardwareAccelerated) {
-                holder.splitWith(
-                    disp.width, disp.height,
-                    disp.maximumCacheWidth, disp.maximumCacheHeight
-                )
-            }
+        (disp as AbsDisplayer).drawDanmaku(danmaku, holder.canvas!!, 0f, 0f, true)
+        if (disp.isHardwareAccelerated) {
+            holder.splitWith(
+                disp.width, disp.height,
+                disp.maximumCacheWidth, disp.maximumCacheHeight
+            )
         }
         return drawingCache
     }
@@ -81,8 +79,6 @@ object DanmakuUtils {
 
     fun compare(obj1: BaseDanmaku, obj2: BaseDanmaku): Int {
         if (obj1 === obj2) return 0
-        if (obj1 == null) return -1
-        if (obj2 == null) return 1
 
         val timeVal = obj1.time - obj2.time
         if (timeVal > 0) return 1 else if (timeVal < 0) return -1
