@@ -112,4 +112,4 @@ rj.dfmnext/
 
 ## License
 
-基于 DanmakuFlameMaster 重写。
+BSD 3-Clause License.
