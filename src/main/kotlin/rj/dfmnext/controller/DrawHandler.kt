@@ -1,0 +1,652 @@
+package rj.dfmnext.controller
+
+import android.graphics.Canvas
+import android.os.Handler
+import android.os.Looper
+import android.os.Message
+import android.util.DisplayMetrics
+import rj.dfmnext.danmaku.model.AbsDisplayer
+import rj.dfmnext.danmaku.model.BaseDanmaku
+import rj.dfmnext.danmaku.model.DanmakuTimer
+import rj.dfmnext.danmaku.model.IDanmakus
+import rj.dfmnext.danmaku.model.IDisplayer
+import rj.dfmnext.danmaku.model.android.DanmakuContext
+import rj.dfmnext.danmaku.parser.BaseDanmakuParser
+import rj.dfmnext.danmaku.renderer.IRenderer.RenderingState
+import rj.dfmnext.danmaku.util.AndroidUtils
+import rj.dfmnext.danmaku.util.SystemClock
+
+class DrawHandler(
+    looper: Looper,
+    view: IDanmakuView?,
+    danmakuVisibile: Boolean
+) : Handler(looper) {
+
+    private var mContext: DanmakuContext? = null
+
+    interface Callback {
+        fun prepared()
+        fun updateTimer(timer: DanmakuTimer)
+        fun danmakuShown(danmaku: BaseDanmaku)
+        fun drawingFinished()
+    }
+
+    private enum class Msg(val what: Int) {
+        START(1), UPDATE(2), RESUME(3), SEEK_POS(4), PREPARE(5),
+        QUIT(6), PAUSE(7), SHOW_DANMAKUS(8), HIDE_DANMAKUS(9),
+        NOTIFY_DISP_SIZE_CHANGED(10), NOTIFY_RENDERING(11),
+        UPDATE_WHEN_PAUSED(12), CLEAR_DANMAKUS_ON_SCREEN(13);
+
+        companion object {
+            private val byWhat = entries.associateBy { it.what }
+            fun from(what: Int): Msg? = byWhat[what]
+        }
+    }
+
+    companion object {
+        val START = Msg.START.what
+        val UPDATE = Msg.UPDATE.what
+        val RESUME = Msg.RESUME.what
+        val SEEK_POS = Msg.SEEK_POS.what
+        val PREPARE = Msg.PREPARE.what
+        private const val INDEFINITE_TIME = 10000000L
+        private const val MAX_RECORD_SIZE = 500
+    }
+
+    private var pausedPosition = 0L
+    private var quitFlag = true
+    private var mTimeBase = 0L
+    private var mReady = false
+    private var mCallback: Callback? = null
+    val timer = DanmakuTimer()
+    private var mParser: BaseDanmakuParser? = null
+    var drawTask: IDrawTask? = null
+    private val mDrawTaskMonitor = Object()
+    private var mDanmakuView: IDanmakuView? = null
+    private var mDanmakusVisible = true
+    private var mDisp: AbsDisplayer? = null
+    private val mRenderingState = RenderingState()
+    private val mDrawTimes = ArrayDeque<Long>()
+    private var mThread: UpdateThread? = null
+    private val mUpdateInNewThread: Boolean
+    private var mCordonTime = 30L
+    private var mCordonTime2 = 60L
+    private var mFrameUpdateRate = 16L
+    @Suppress("unused")
+    private var mThresholdTime = 0L
+    private var mLastDeltaTime = 0L
+    private var mInSeekingAction = false
+    private var mDesireSeekingTime = 0L
+    private var mRemainingTime = 0L
+    private var mInSyncAction = false
+    private var mInWaitingState = false
+    private val mIdleSleep: Boolean
+    private var mSpeedOffsetNoRender = 0L
+    private var mSpeedOffsetRender = 0L
+    private var mSpeed = 1.0f
+
+    init {
+        mUpdateInNewThread = Runtime.getRuntime().availableProcessors() > 3
+        mIdleSleep = true // DeviceUtils.isProblemBoxDevice() replaced: assume not a problem device
+        bindView(view)
+        if (danmakuVisibile) {
+            showDanmakus(null)
+        } else {
+            hideDanmakus(false)
+        }
+        mDanmakusVisible = danmakuVisibile
+    }
+
+    private fun bindView(view: IDanmakuView?) {
+        mDanmakuView = view
+    }
+
+    fun setConfig(config: DanmakuContext) {
+        mContext = config
+    }
+
+    fun setParser(parser: BaseDanmakuParser) {
+        mParser = parser
+    }
+
+    fun setCallback(cb: Callback?) {
+        mCallback = cb
+    }
+
+    fun quit() {
+        sendEmptyMessage(Msg.QUIT.what)
+    }
+
+    fun isStop(): Boolean = quitFlag
+
+    override fun handleMessage(msg: Message) {
+        when (Msg.from(msg.what)) {
+            Msg.PREPARE -> {
+                mTimeBase = SystemClock.uptimeMillis()
+                if (mParser == null || mDanmakuView?.isViewReady() != true) {
+                    sendEmptyMessageDelayed(PREPARE, 100)
+                } else {
+                    prepare {
+                        pausedPosition = 0
+                        mReady = true
+                        mCallback?.prepared()
+                    }
+                }
+            }
+            Msg.SHOW_DANMAKUS -> {
+                mDanmakusVisible = true
+                val start = msg.obj as? Long
+                var resume = false
+                if (drawTask != null) {
+                    if (start == null) {
+                        timer.update(getCurrentTime())
+                        drawTask!!.requestClear()
+                    } else {
+                        drawTask!!.start()
+                        drawTask!!.seek(start)
+                        drawTask!!.requestClear()
+                        resume = true
+                    }
+                }
+                if (quitFlag && mDanmakuView != null) {
+                    mDanmakuView!!.drawDanmakus()
+                }
+                notifyRendering()
+                if (resume) {
+                    val startTime = msg.obj as? Long
+                    pausedPosition = startTime ?: 0
+                    resumePlayback()
+                }
+            }
+            Msg.START -> {
+                val startTime = msg.obj as? Long
+                pausedPosition = startTime ?: 0
+                resumePlayback()
+            }
+            Msg.SEEK_POS -> {
+                quitFlag = true
+                quitUpdateThread()
+                val position = msg.obj as Long
+                val deltaMs = position - timer.currMillisecond
+                mTimeBase -= deltaMs
+                timer.update(position)
+                mContext!!.mGlobalFlagValues.updateMeasureFlag()
+                drawTask?.seek(position)
+                pausedPosition = position
+                resumePlayback()
+            }
+            Msg.RESUME -> { resumePlayback() }
+            Msg.UPDATE -> {
+                if (mUpdateInNewThread) {
+                    updateInNewThread()
+                } else {
+                    updateInCurrentThread()
+                }
+            }
+            Msg.NOTIFY_DISP_SIZE_CHANGED -> {
+                mContext!!.mDanmakuFactory.notifyDispSizeChanged(mContext!!)
+                val updateFlag = msg.obj as? Boolean
+                if (updateFlag != null && updateFlag) {
+                    mContext!!.mGlobalFlagValues.updateMeasureFlag()
+                }
+            }
+            Msg.HIDE_DANMAKUS -> {
+                mDanmakusVisible = false
+                mDanmakuView?.clear()
+                drawTask?.let {
+                    it.requestClear()
+                    it.requestHide()
+                }
+                val quitDrawTask = msg.obj as Boolean
+                if (quitDrawTask) {
+                    drawTask?.quit()
+                    removeMessages(UPDATE)
+                    stopPlayback()
+                }
+            }
+            Msg.PAUSE -> {
+                removeMessages(UPDATE)
+                stopPlayback()
+            }
+            Msg.QUIT -> { stopPlayback() }
+            Msg.NOTIFY_RENDERING -> { notifyRendering() }
+            Msg.UPDATE_WHEN_PAUSED -> {
+                if (quitFlag && mDanmakuView != null) {
+                    drawTask?.requestClear()
+                    mDanmakuView!!.drawDanmakus()
+                    notifyRendering()
+                }
+            }
+            Msg.CLEAR_DANMAKUS_ON_SCREEN -> {
+                drawTask?.clearDanmakusOnScreen(getCurrentTime())
+            }
+            null -> {}
+        }
+    }
+
+    private fun resumePlayback() {
+        quitFlag = false
+        if (mReady) {
+            mRenderingState.reset()
+            mDrawTimes.clear()
+            mTimeBase = SystemClock.uptimeMillis() - pausedPosition
+            timer.update(pausedPosition)
+            removeMessages(RESUME)
+            sendEmptyMessage(UPDATE)
+            drawTask!!.start()
+            notifyRendering()
+            mInSeekingAction = false
+        } else {
+            sendEmptyMessageDelayed(RESUME, 100)
+        }
+    }
+
+    private fun stopPlayback() {
+        removeCallbacksAndMessages(null)
+        quitFlag = true
+        syncTimerIfNeeded()
+        if (mThread != null) {
+            notifyRendering()
+            quitUpdateThread()
+        }
+        pausedPosition = timer.currMillisecond
+        drawTask?.quit()
+        mParser?.release()
+        if (looper != Looper.getMainLooper()) {
+            looper.quit()
+        }
+    }
+
+    private fun quitUpdateThread() {
+        val thread = mThread ?: return
+        mThread = null
+        synchronized(mDrawTaskMonitor) {
+            mDrawTaskMonitor.notifyAll()
+        }
+        try {
+            thread.join()
+        } catch (e: InterruptedException) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun updateInCurrentThread() {
+        if (quitFlag) return
+        val startMS = SystemClock.uptimeMillis()
+        var d = syncTimer(startMS)
+        if (d < 0) {
+            removeMessages(UPDATE)
+            sendEmptyMessageDelayed(UPDATE, 60 - d)
+            return
+        }
+        d = mDanmakuView!!.drawDanmakus()
+        removeMessages(UPDATE)
+        if (d > mCordonTime2) {
+            timer.add(d)
+            mDrawTimes.clear()
+        }
+        if (!mDanmakusVisible) {
+            waitRendering(INDEFINITE_TIME)
+            return
+        } else if (mRenderingState.nothingRendered && mIdleSleep) {
+            val dTime = mRenderingState.endTime - timer.currMillisecond
+            if (dTime > 500) {
+                waitRendering(dTime - 10)
+                return
+            }
+        }
+        if (d < mFrameUpdateRate) {
+            sendEmptyMessageDelayed(UPDATE, mFrameUpdateRate - d)
+            return
+        }
+        sendEmptyMessage(UPDATE)
+    }
+
+    private fun updateInNewThread() {
+        if (mThread != null) return
+        mThread = object : UpdateThread("DFM Update") {
+            override fun run() {
+                var lastTime = SystemClock.uptimeMillis()
+                var dTime = 0L
+                while (!isQuited() && !quitFlag) {
+                    val startMS = SystemClock.uptimeMillis()
+                    dTime = SystemClock.uptimeMillis() - lastTime
+                    val diffTime = mFrameUpdateRate - dTime
+                    if (diffTime > 1) {
+                        SystemClock.sleep(1)
+                        continue
+                    }
+                    lastTime = startMS
+                    var d = syncTimer(startMS)
+                    if (d < 0) {
+                        SystemClock.sleep(60 - d)
+                        continue
+                    }
+                    d = mDanmakuView!!.drawDanmakus()
+                    if (d > mCordonTime2) {
+                        timer.add(d)
+                        mDrawTimes.clear()
+                    }
+                    if (!mDanmakusVisible) {
+                        waitRendering(INDEFINITE_TIME)
+                    } else if (mRenderingState.nothingRendered && mIdleSleep) {
+                        dTime = mRenderingState.endTime - timer.currMillisecond
+                        if (dTime > 500) {
+                            notifyRendering()
+                            waitRendering(dTime - 10)
+                        }
+                    }
+                }
+            }
+        }
+        mThread!!.start()
+    }
+
+    fun setSpeed(speed: Float) {
+        mSpeed = speed
+    }
+
+    fun syncTimer(startMS: Long): Long {
+        if (mInSeekingAction || mInSyncAction) return 0
+        mInSyncAction = true
+        var d = 0L
+        val time = startMS - mTimeBase
+        if (!mDanmakusVisible || mRenderingState.nothingRendered || mInWaitingState) {
+            timer.update(time + mSpeedOffsetNoRender + mSpeedOffsetRender)
+            mSpeedOffsetNoRender += (mFrameUpdateRate * (mSpeed - 1)).toLong()
+            mRemainingTime = 0
+            mCallback?.updateTimer(timer)
+        } else {
+            var gapTime = time - timer.currMillisecond
+            val averageTime = maxOf(mFrameUpdateRate, getAverageRenderingTime())
+            if (gapTime > 2000 || mRenderingState.consumingTime > mCordonTime || averageTime > mCordonTime) {
+                d = gapTime
+                gapTime = 0
+            } else {
+                d = averageTime + gapTime / mFrameUpdateRate
+                d = maxOf(mFrameUpdateRate, d)
+                d = minOf(mCordonTime, d)
+                val a = d - mLastDeltaTime
+                if (a > 3 && a < 8 && mLastDeltaTime >= mFrameUpdateRate && mLastDeltaTime <= mCordonTime) {
+                    d = mLastDeltaTime
+                } else {
+                    mSpeedOffsetRender += (d * (mSpeed - 1)).toLong()
+                    d = (d * mSpeed).toLong()
+                }
+                gapTime -= d
+                mLastDeltaTime = d
+            }
+            mRemainingTime = gapTime
+            timer.add(d)
+        }
+        mCallback?.updateTimer(timer)
+        mInSyncAction = false
+        return d
+    }
+
+    fun syncTimerIfNeeded() {
+        if (mInWaitingState) {
+            syncTimer(SystemClock.uptimeMillis())
+        }
+    }
+
+    private fun initRenderingConfigs() {
+        val averageFrameConsumingTime = 16L
+        mCordonTime = maxOf(33, (averageFrameConsumingTime * 2.5f).toLong())
+        mCordonTime2 = (mCordonTime * 2.5f).toLong()
+        mFrameUpdateRate = maxOf(16, averageFrameConsumingTime / 15 * 15)
+        mThresholdTime = mFrameUpdateRate + 3
+    }
+
+    private fun prepare(runnable: Runnable) {
+        if (drawTask == null) {
+            drawTask = createDrawTask(
+                mDanmakuView!!.isDanmakuDrawingCacheEnabled(),
+                timer,
+                mDanmakuView!!.getContext(),
+                mDanmakuView!!.getWidth(),
+                mDanmakuView!!.getHeight(),
+                mDanmakuView!!.isHardwareAccelerated(),
+                object : IDrawTask.TaskListener {
+                    override fun ready() {
+                        initRenderingConfigs()
+                        runnable.run()
+                    }
+
+                    override fun onDanmakuAdd(danmaku: BaseDanmaku) {
+                        if (danmaku.isTimeOut()) return
+                        val delay = danmaku.time - timer.currMillisecond
+                        if (delay > 0) {
+                            sendEmptyMessageDelayed(Msg.NOTIFY_RENDERING.what, delay)
+                        } else if (mInWaitingState) {
+                            notifyRendering()
+                        }
+                    }
+
+                    override fun onDanmakuShown(danmaku: BaseDanmaku) {
+                        mCallback?.danmakuShown(danmaku)
+                    }
+
+                    override fun onDanmakusDrawingFinished() {
+                        mCallback?.drawingFinished()
+                    }
+
+                    override fun onDanmakuConfigChanged() {
+                        redrawIfNeeded()
+                    }
+                }
+            )
+        } else {
+            runnable.run()
+        }
+    }
+
+    fun isPrepared(): Boolean = mReady
+
+    private fun createDrawTask(
+        useDrawingCache: Boolean,
+        timer: DanmakuTimer,
+        context: android.content.Context,
+        width: Int,
+        height: Int,
+        isHardwareAccelerated: Boolean,
+        taskListener: IDrawTask.TaskListener
+    ): IDrawTask {
+        mDisp = mContext!!.getDisplayer()
+        mDisp!!.setSize(width, height)
+        val displayMetrics: DisplayMetrics = context.resources.displayMetrics
+        mDisp!!.setDensities(displayMetrics.density, displayMetrics.densityDpi, displayMetrics.scaledDensity)
+        mDisp!!.resetSlopPixel(mContext!!.scaleTextSize)
+        mDisp!!.setHardwareAccelerated(isHardwareAccelerated)
+        val task: IDrawTask = if (useDrawingCache) {
+            CacheManagingDrawTask(
+                timer, mContext!!, taskListener,
+                1024 * 1024 * AndroidUtils.getMemoryClass(context) / 3
+            )
+        } else {
+            DrawTask(timer, mContext!!, taskListener)
+        }
+        task.setParser(mParser)
+        task.prepare()
+        obtainMessage(Msg.NOTIFY_DISP_SIZE_CHANGED.what, false).sendToTarget()
+        return task
+    }
+
+    fun seekTo(ms: Long?) {
+        mInSeekingAction = true
+        mDesireSeekingTime = ms!!
+        removeMessages(UPDATE)
+        removeMessages(RESUME)
+        removeMessages(SEEK_POS)
+        obtainMessage(SEEK_POS, ms).sendToTarget()
+    }
+
+    fun addDanmaku(item: BaseDanmaku) {
+        drawTask?.let {
+            item.flags = mContext!!.mGlobalFlagValues
+            item.setTimer(timer)
+            it.addDanmaku(item)
+            obtainMessage(Msg.NOTIFY_RENDERING.what).sendToTarget()
+        }
+    }
+
+    fun invalidateDanmaku(item: BaseDanmaku?, remeasure: Boolean) {
+        if (drawTask != null && item != null) {
+            drawTask!!.invalidateDanmaku(item, remeasure)
+        }
+        redrawIfNeeded()
+    }
+
+    fun resume() {
+        sendEmptyMessage(RESUME)
+    }
+
+    fun prepare() {
+        sendEmptyMessage(PREPARE)
+    }
+
+    fun pause() {
+        removeMessages(RESUME)
+        removeMessages(UPDATE)
+        syncTimerIfNeeded()
+        sendEmptyMessage(Msg.PAUSE.what)
+    }
+
+    fun showDanmakus(position: Long?) {
+        if (mDanmakusVisible) return
+        mDanmakusVisible = true
+        removeMessages(Msg.SHOW_DANMAKUS.what)
+        removeMessages(Msg.HIDE_DANMAKUS.what)
+        obtainMessage(Msg.SHOW_DANMAKUS.what, position).sendToTarget()
+    }
+
+    fun hideDanmakus(quitDrawTask: Boolean): Long {
+        if (!mDanmakusVisible) return timer.currMillisecond
+        mDanmakusVisible = false
+        removeMessages(Msg.SHOW_DANMAKUS.what)
+        removeMessages(Msg.HIDE_DANMAKUS.what)
+        obtainMessage(Msg.HIDE_DANMAKUS.what, quitDrawTask).sendToTarget()
+        return timer.currMillisecond
+    }
+
+    fun getVisibility(): Boolean = mDanmakusVisible
+
+    fun draw(canvas: Canvas): RenderingState {
+        if (drawTask == null) return mRenderingState
+        mDisp!!.setExtraData(canvas)
+        mRenderingState.set(drawTask!!.draw(mDisp!!))
+        recordRenderingTime()
+        return mRenderingState
+    }
+
+    private fun redrawIfNeeded() {
+        if (quitFlag && mDanmakusVisible) {
+            obtainMessage(Msg.UPDATE_WHEN_PAUSED.what).sendToTarget()
+        }
+    }
+
+    private fun notifyRendering() {
+        if (!mInWaitingState) return
+        drawTask?.requestClear()
+        if (mUpdateInNewThread) {
+            synchronized(this) {
+                mDrawTimes.clear()
+            }
+            synchronized(mDrawTaskMonitor) {
+                mDrawTaskMonitor.notifyAll()
+            }
+            mDrawTimes.clear()
+            removeMessages(UPDATE)
+            sendEmptyMessage(UPDATE)
+        }
+        mInWaitingState = false
+    }
+
+    private fun waitRendering(dTime: Long) {
+        mRenderingState.sysTime = SystemClock.uptimeMillis()
+        mInWaitingState = true
+        if (mUpdateInNewThread) {
+            if (mThread == null) return
+            try {
+                synchronized(mDrawTaskMonitor) {
+                    if (dTime == INDEFINITE_TIME) {
+                        mDrawTaskMonitor.wait()
+                    } else {
+                        mDrawTaskMonitor.wait(dTime)
+                    }
+                    sendEmptyMessage(Msg.NOTIFY_RENDERING.what)
+                }
+            } catch (e: InterruptedException) {
+                e.printStackTrace()
+            }
+        } else {
+            if (dTime == INDEFINITE_TIME) {
+                removeMessages(Msg.NOTIFY_RENDERING.what)
+                removeMessages(UPDATE)
+            } else {
+                removeMessages(Msg.NOTIFY_RENDERING.what)
+                removeMessages(UPDATE)
+                sendEmptyMessageDelayed(Msg.NOTIFY_RENDERING.what, dTime)
+            }
+        }
+    }
+
+    @Synchronized
+    private fun getAverageRenderingTime(): Long {
+        val frames = mDrawTimes.size
+        if (frames <= 0) return 0
+        return try {
+            val dtime = mDrawTimes.last() - mDrawTimes.first()
+            dtime / frames
+        } catch (e: Exception) {
+            e.printStackTrace()
+            0
+        }
+    }
+
+    @Synchronized
+    private fun recordRenderingTime() {
+        val lastTime = SystemClock.uptimeMillis()
+        mDrawTimes.addLast(lastTime)
+        var frames = mDrawTimes.size
+        if (frames > MAX_RECORD_SIZE) {
+            mDrawTimes.removeFirst()
+            frames = MAX_RECORD_SIZE
+        }
+    }
+
+    fun getDisplayer(): IDisplayer? = mDisp
+
+    fun notifyDispSizeChanged(width: Int, height: Int) {
+        if (mDisp == null) return
+        if (mDisp!!.width != width || mDisp!!.height != height) {
+            mDisp!!.setSize(width, height)
+            obtainMessage(Msg.NOTIFY_DISP_SIZE_CHANGED.what, true).sendToTarget()
+        }
+    }
+
+    fun removeAllDanmakus(isClearDanmakusOnScreen: Boolean) {
+        drawTask?.removeAllDanmakus(isClearDanmakusOnScreen)
+    }
+
+    fun removeAllLiveDanmakus() {
+        drawTask?.removeAllLiveDanmakus()
+    }
+
+    fun getCurrentVisibleDanmakus(): IDanmakus? {
+        return drawTask?.getVisibleDanmakusOnTime(getCurrentTime())
+    }
+
+    fun getCurrentTime(): Long {
+        if (!mReady) return 0
+        if (mInSeekingAction) return mDesireSeekingTime
+        if (quitFlag || !mInWaitingState) return timer.currMillisecond - mRemainingTime
+        return SystemClock.uptimeMillis() - mTimeBase
+    }
+
+    fun clearDanmakusOnScreen() {
+        obtainMessage(Msg.CLEAR_DANMAKUS_ON_SCREEN.what).sendToTarget()
+    }
+
+    fun getConfig(): DanmakuContext? = mContext
+}
