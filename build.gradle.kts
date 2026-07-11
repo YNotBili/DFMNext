@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "rj.dfmnext"
+    namespace = "io.github.ynotbili.dfmnext"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1

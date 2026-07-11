@@ -97,7 +97,7 @@ DanmakuView (View.onDraw)
 ## 包结构
 
 ```
-rj.dfmnext/
+io.github.ynotbili.dfmnext/
   ui/widget/         DanmakuView, DanmakuTouchHelper
   controller/        DrawHandler, DrawTask, CacheManagingDrawTask, DanmakuFilters
   danmaku/model/     弹幕类型、Timer、Duration、对象池
