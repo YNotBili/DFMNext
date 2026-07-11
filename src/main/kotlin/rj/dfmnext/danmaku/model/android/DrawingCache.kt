@@ -6,7 +6,7 @@ import rj.dfmnext.danmaku.model.objectpool.PoolableManager
 interface IDrawingCache<T> {
     fun build(w: Int, h: Int, density: Int, checkSizeEquals: Boolean)
     fun erase()
-    fun get(): T
+    fun get(): T?
     fun destroy()
     fun size(): Int
     fun width(): Int
@@ -33,8 +33,8 @@ class DrawingCache : IDrawingCache<DrawingCacheHolder>, Poolable<DrawingCache> {
         mHolder.erase()
     }
 
-    override fun get(): DrawingCacheHolder {
-        if (mHolder.bitmap == null) throw IllegalStateException("DrawingCache not built")
+    override fun get(): DrawingCacheHolder? {
+        if (mHolder.bitmap == null) return null
         return mHolder
     }
 

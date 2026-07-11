@@ -58,9 +58,17 @@ class DanmakuView @JvmOverloads constructor(
         if (mHandler == null) return@Runnable
         mResumeTryCount++
         if (mResumeTryCount > 4 || super.isShown()) {
-            mHandler!!.resume()
+            try {
+                mHandler!!.resume()
+            } catch (_: IllegalStateException) {
+                // Handler thread already dead
+            }
         } else {
-            mHandler!!.postDelayed(mResumeRunnable, (100 * mResumeTryCount).toLong())
+            try {
+                mHandler!!.postDelayed(mResumeRunnable, (100 * mResumeTryCount).toLong())
+            } catch (_: IllegalStateException) {
+                // Handler thread already dead
+            }
         }
     }
 
@@ -281,7 +289,12 @@ class DanmakuView @JvmOverloads constructor(
         if (mHandler != null && mHandler!!.isPrepared()) {
             mHandler!!.removeCallbacks(mResumeRunnable)
             mResumeTryCount = 0
-            mHandler!!.postDelayed(mResumeRunnable, 50)
+            try {
+                mHandler!!.postDelayed(mResumeRunnable, 50)
+            } catch (_: IllegalStateException) {
+                // Handler thread already dead, restart instead
+                restart()
+            }
         } else if (mHandler == null) {
             restart()
         }

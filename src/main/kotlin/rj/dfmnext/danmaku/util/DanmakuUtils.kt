@@ -58,7 +58,7 @@ object DanmakuUtils {
             disp.densityDpi,
             false
         )
-        val holder = drawingCache.get()
+        val holder = drawingCache.get()!!
         (disp as AbsDisplayer).drawDanmaku(danmaku, holder.canvas!!, 0f, 0f, true)
         if (disp.isHardwareAccelerated) {
             holder.splitWith(

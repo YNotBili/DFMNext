@@ -22,10 +22,15 @@ private val fpsPaint by lazy {
 private val tmpRect = RectF()
 
 var useDrawColorToClear = true
+var useDrawColorModeClear = false
 
 fun Canvas.clearCanvas() {
     if (useDrawColorToClear) {
-        drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        if (useDrawColorModeClear) {
+            drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        } else {
+            drawColor(Color.TRANSPARENT)
+        }
     } else {
         tmpRect.set(0f, 0f, width.toFloat(), height.toFloat())
         drawRect(tmpRect, clearPaint)

@@ -71,7 +71,10 @@ abstract class BaseDanmaku {
         this.measureResetFlag = flags?.MEASURE_RESET_FLAG ?: 0
     }
 
-    fun hasDrawingCache(): Boolean = cache != null && cache?.get() != null
+    fun hasDrawingCache(): Boolean {
+        val c = cache ?: return false
+        return c.get() != null
+    }
 
     fun isShown(): Boolean =
         this.visibility == VISIBLE && visibleResetFlag == flags?.VISIBLE_RESET_FLAG

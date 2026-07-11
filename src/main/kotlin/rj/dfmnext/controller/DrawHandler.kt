@@ -201,14 +201,15 @@ class DrawHandler(
                 if (quitDrawTask) {
                     drawTask?.quit()
                     removeMessages(UPDATE)
-                    stopPlayback()
+                    stopPlayback(quitLooper = false)
                 }
             }
             Msg.PAUSE -> {
                 removeMessages(UPDATE)
-                stopPlayback()
+                syncTimerIfNeeded()
+                stopPlayback(quitLooper = false)
             }
-            Msg.QUIT -> { stopPlayback() }
+            Msg.QUIT -> { stopPlayback(quitLooper = true) }
             Msg.NOTIFY_RENDERING -> { notifyRendering() }
             Msg.UPDATE_WHEN_PAUSED -> {
                 if (quitFlag && mDanmakuView != null) {
@@ -241,8 +242,10 @@ class DrawHandler(
         }
     }
 
-    private fun stopPlayback() {
-        removeCallbacksAndMessages(null)
+    private fun stopPlayback(quitLooper: Boolean = false) {
+        if (quitLooper) {
+            removeCallbacksAndMessages(null)
+        }
         quitFlag = true
         syncTimerIfNeeded()
         if (mThread != null) {
@@ -250,10 +253,12 @@ class DrawHandler(
             quitUpdateThread()
         }
         pausedPosition = timer.currMillisecond
-        drawTask?.quit()
-        mParser?.release()
-        if (looper != Looper.getMainLooper()) {
-            looper.quit()
+        if (quitLooper) {
+            drawTask?.quit()
+            mParser?.release()
+            if (looper != Looper.getMainLooper()) {
+                looper.quit()
+            }
         }
     }
 

@@ -101,9 +101,6 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                 || item.getType() == BaseDanmaku.TYPE_SCROLL_LR
             ) {
                 orderInScreen++
-                if (orderInScreen > 150) {
-                    continue
-                }
             } else if (item.getType() == BaseDanmaku.TYPE_SPECIAL) {
                 if (item.isOutside()) {
                     continue
