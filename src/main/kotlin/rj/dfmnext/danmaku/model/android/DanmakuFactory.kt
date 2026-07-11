@@ -9,6 +9,7 @@ import rj.dfmnext.danmaku.model.IDisplayer
 import rj.dfmnext.danmaku.model.L2RDanmaku
 import rj.dfmnext.danmaku.model.R2LDanmaku
 import rj.dfmnext.danmaku.model.SpecialDanmaku
+import rj.dfmnext.danmaku.util.isSpecial
 
 class DanmakuFactory protected constructor() {
 
@@ -25,7 +26,7 @@ class DanmakuFactory protected constructor() {
         fun create(): DanmakuFactory = DanmakuFactory()
 
         fun fillLinePathData(item: BaseDanmaku, points: Array<FloatArray>, scaleX: Float, scaleY: Float) {
-            if (item.getType() != BaseDanmaku.TYPE_SPECIAL || points.isEmpty() || points[0].size != 2) return
+            if (!item.isSpecial || points.isEmpty() || points[0].size != 2) return
             for (point in points) {
                 point[0] *= scaleX
                 point[1] *= scaleY
@@ -192,7 +193,7 @@ class DanmakuFactory protected constructor() {
         translationDuration: Long, translationStartDelay: Long,
         scaleX: Float, scaleY: Float
     ) {
-        if (item.getType() != BaseDanmaku.TYPE_SPECIAL) return
+        if (!item.isSpecial) return
         (item as SpecialDanmaku).setTranslationData(
             beginX * scaleX, beginY * scaleY,
             endX * scaleX, endY * scaleY,
@@ -202,7 +203,7 @@ class DanmakuFactory protected constructor() {
     }
 
     fun fillAlphaData(item: BaseDanmaku, beginAlpha: Int, endAlpha: Int, alphaDuraion: Long) {
-        if (item.getType() != BaseDanmaku.TYPE_SPECIAL) return
+        if (!item.isSpecial) return
         (item as SpecialDanmaku).setAlphaData(beginAlpha, endAlpha, alphaDuraion)
         updateSpecicalDanmakuDuration(item)
     }

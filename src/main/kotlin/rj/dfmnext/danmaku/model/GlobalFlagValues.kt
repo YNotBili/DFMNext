@@ -1,10 +1,10 @@
 package rj.dfmnext.danmaku.model
 
 class GlobalFlagValues {
-    var MEASURE_RESET_FLAG: Int = 0
-    var VISIBLE_RESET_FLAG: Int = 0
-    var FILTER_RESET_FLAG: Int = 0
-    var FIRST_SHOWN_RESET_FLAG: Int = 0
+    @Volatile var MEASURE_RESET_FLAG: Int = 0
+    @Volatile var VISIBLE_RESET_FLAG: Int = 0
+    @Volatile var FILTER_RESET_FLAG: Int = 0
+    @Volatile var FIRST_SHOWN_RESET_FLAG: Int = 0
 
     fun resetAll() {
         VISIBLE_RESET_FLAG = 0

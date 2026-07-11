@@ -90,7 +90,6 @@ class Danmakus : IDanmakus {
                 false
             }
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }
@@ -131,6 +130,7 @@ class Danmakus : IDanmakus {
         return Danmakus(ArrayList(sub))
     }
 
+    @Synchronized
     override fun sub(startTime: Long, endTime: Long): IDanmakus {
         val currentItems = items
         if (currentItems == null || currentItems.isEmpty()) return Danmakus()

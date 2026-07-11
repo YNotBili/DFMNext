@@ -7,6 +7,7 @@ import rj.dfmnext.danmaku.model.AbsDisplayer
 import rj.dfmnext.danmaku.model.BaseDanmaku
 import rj.dfmnext.danmaku.model.IDisplayer
 import rj.dfmnext.danmaku.renderer.IRenderer
+import rj.dfmnext.danmaku.util.isSpecial
 
 class AndroidDisplayer : AbsDisplayer() {
 
@@ -126,7 +127,7 @@ class AndroidDisplayer : AbsDisplayer() {
 
         var alphaPaint: Paint? = null
         var needRestore = false
-        if (danmaku.getType() == BaseDanmaku.TYPE_SPECIAL) {
+        if (danmaku.isSpecial) {
             if (danmaku.getAlpha() == BaseDanmaku.ALPHA_TRANSPARENT) return IRenderer.NOTHING_RENDERING
             if (danmaku.rotationZ != 0f || danmaku.rotationY != 0f) {
                 saveCanvas(danmaku, c, left, top)

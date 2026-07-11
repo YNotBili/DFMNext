@@ -7,6 +7,8 @@ import rj.dfmnext.danmaku.model.IDisplayer
 import rj.dfmnext.danmaku.model.android.DanmakuContext
 import rj.dfmnext.danmaku.renderer.IRenderer
 import rj.dfmnext.danmaku.util.SystemClock
+import rj.dfmnext.danmaku.util.isScrolling
+import rj.dfmnext.danmaku.util.isSpecial
 
 class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
 
@@ -97,11 +99,9 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                 break
             }
 
-            if (item.getType() == BaseDanmaku.TYPE_SCROLL_RL
-                || item.getType() == BaseDanmaku.TYPE_SCROLL_LR
-            ) {
+            if (item.isScrolling) {
                 orderInScreen++
-            } else if (item.getType() == BaseDanmaku.TYPE_SPECIAL) {
+            } else if (item.isSpecial) {
                 if (item.isOutside()) {
                     continue
                 }
@@ -136,7 +136,7 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                 mLastDrawnDanmakus[mLastDrawnIndex] = item
                 mLastDrawnIndex = (mLastDrawnIndex + 1) % mLastDrawnDanmakus.size
 
-                if (item.getType() == BaseDanmaku.TYPE_SPECIAL) {
+                if (item.isSpecial) {
                     mSpecialDanmakusToDraw.add(item)
                     continue
                 }

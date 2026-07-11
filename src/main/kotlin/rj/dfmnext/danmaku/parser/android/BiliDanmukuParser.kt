@@ -8,6 +8,7 @@ import rj.dfmnext.danmaku.model.android.DanmakuFactory
 import rj.dfmnext.danmaku.model.android.Danmakus
 import rj.dfmnext.danmaku.parser.BaseDanmakuParser
 import rj.dfmnext.danmaku.util.DanmakuUtils
+import rj.dfmnext.danmaku.util.isSpecial
 import org.json.JSONArray
 import org.xml.sax.Attributes
 import org.xml.sax.InputSource
@@ -36,7 +37,7 @@ class BiliDanmukuParser : BaseDanmakuParser() {
                 xmlReader.parse(InputSource(source.data()))
                 return contentHandler.result
             } catch (e: Exception) {
-                e.printStackTrace()
+                // XML parse error, skip
             }
         }
         return null
@@ -121,7 +122,7 @@ class BiliDanmukuParser : BaseDanmakuParser() {
                 danmaku.index = index++
 
                 val text = danmaku.text?.toString()?.trim() ?: ""
-                if (danmaku.getType() == BaseDanmaku.TYPE_SPECIAL) {
+                if (danmaku.isSpecial) {
                     val textArr = SpecialDanmakuParser.parseFromJson(text)
                     if (textArr != null && textArr.size >= 5) {
                         SpecialDanmakuParser.parse(danmaku as SpecialDanmaku, textArr, mContext, mDispScaleX, mDispScaleY)

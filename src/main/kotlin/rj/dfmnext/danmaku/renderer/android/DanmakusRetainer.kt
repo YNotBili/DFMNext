@@ -4,6 +4,11 @@ import rj.dfmnext.danmaku.model.BaseDanmaku
 import rj.dfmnext.danmaku.model.IDisplayer
 import rj.dfmnext.danmaku.model.android.Danmakus
 import rj.dfmnext.danmaku.util.DanmakuUtils
+import rj.dfmnext.danmaku.util.isScrollRL
+import rj.dfmnext.danmaku.util.isScrollLR
+import rj.dfmnext.danmaku.util.isFixTop
+import rj.dfmnext.danmaku.util.isFixBottom
+import rj.dfmnext.danmaku.util.isSpecial
 
 class DanmakusRetainer {
 
@@ -13,24 +18,24 @@ class DanmakusRetainer {
     private var fbdrInstance: IDanmakusRetainer? = null
 
     fun fix(danmaku: BaseDanmaku, disp: IDisplayer, verifier: Verifier?) {
-        when (danmaku.getType()) {
-            BaseDanmaku.TYPE_SCROLL_RL -> {
+        when {
+            danmaku.isScrollRL -> {
                 if (rldrInstance == null) rldrInstance = RLDanmakusRetainer()
                 rldrInstance!!.fix(danmaku, disp, verifier)
             }
-            BaseDanmaku.TYPE_SCROLL_LR -> {
+            danmaku.isScrollLR -> {
                 if (lrdrInstance == null) lrdrInstance = RLDanmakusRetainer()
                 lrdrInstance!!.fix(danmaku, disp, verifier)
             }
-            BaseDanmaku.TYPE_FIX_TOP -> {
+            danmaku.isFixTop -> {
                 if (ftdrInstance == null) ftdrInstance = FTDanmakusRetainer()
                 ftdrInstance!!.fix(danmaku, disp, verifier)
             }
-            BaseDanmaku.TYPE_FIX_BOTTOM -> {
+            danmaku.isFixBottom -> {
                 if (fbdrInstance == null) fbdrInstance = FBDanmakusRetainer()
                 fbdrInstance!!.fix(danmaku, disp, verifier)
             }
-            BaseDanmaku.TYPE_SPECIAL -> {
+            danmaku.isSpecial -> {
                 danmaku.layout(disp, 0f, 0f)
             }
         }

@@ -170,7 +170,7 @@ class DrawHandler(
                 val deltaMs = position - timer.currMillisecond
                 mTimeBase -= deltaMs
                 timer.update(position)
-                mContext!!.mGlobalFlagValues.updateMeasureFlag()
+                mContext?.mGlobalFlagValues?.updateMeasureFlag()
                 drawTask?.seek(position)
                 pausedPosition = position
                 resumePlayback()
@@ -184,10 +184,11 @@ class DrawHandler(
                 }
             }
             Msg.NOTIFY_DISP_SIZE_CHANGED -> {
-                mContext!!.mDanmakuFactory.notifyDispSizeChanged(mContext!!)
+                val ctx = mContext ?: return
+                ctx.mDanmakuFactory.notifyDispSizeChanged(ctx)
                 val updateFlag = msg.obj as? Boolean
                 if (updateFlag != null && updateFlag) {
-                    mContext!!.mGlobalFlagValues.updateMeasureFlag()
+                    ctx.mGlobalFlagValues.updateMeasureFlag()
                 }
             }
             Msg.HIDE_DANMAKUS -> {
@@ -214,7 +215,7 @@ class DrawHandler(
             Msg.UPDATE_WHEN_PAUSED -> {
                 if (quitFlag && mDanmakuView != null) {
                     drawTask?.requestClear()
-                    mDanmakuView!!.drawDanmakus()
+                    mDanmakuView?.drawDanmakus()
                     notifyRendering()
                 }
             }
@@ -271,7 +272,7 @@ class DrawHandler(
         try {
             thread.join(500)
         } catch (e: InterruptedException) {
-            e.printStackTrace()
+            Thread.currentThread().interrupt()
         }
     }
 
@@ -284,7 +285,8 @@ class DrawHandler(
             sendEmptyMessageDelayed(UPDATE, 60 - d)
             return
         }
-        d = mDanmakuView!!.drawDanmakus()
+        val view = mDanmakuView ?: return
+        d = view.drawDanmakus()
         removeMessages(UPDATE)
         if (d > mCordonTime2) {
             timer.add(d)
@@ -327,7 +329,8 @@ class DrawHandler(
                         SystemClock.sleep(60 - d)
                         continue
                     }
-                    d = mDanmakuView!!.drawDanmakus()
+                    val view = mDanmakuView ?: break
+                    d = view.drawDanmakus()
                     if (d > mCordonTime2) {
                         timer.add(d)
                         mDrawTimes.clear()
@@ -405,13 +408,14 @@ class DrawHandler(
 
     private fun prepare(runnable: Runnable) {
         if (drawTask == null) {
+            val view = mDanmakuView ?: return
             drawTask = createDrawTask(
-                mDanmakuView!!.isDanmakuDrawingCacheEnabled(),
+                view.isDanmakuDrawingCacheEnabled(),
                 timer,
-                mDanmakuView!!.getContext(),
-                mDanmakuView!!.getWidth(),
-                mDanmakuView!!.getHeight(),
-                mDanmakuView!!.isHardwareAccelerated(),
+                view.getContext(),
+                view.getWidth(),
+                view.getHeight(),
+                view.isHardwareAccelerated(),
                 object : IDrawTask.TaskListener {
                     override fun ready() {
                         initRenderingConfigs()
@@ -457,19 +461,20 @@ class DrawHandler(
         isHardwareAccelerated: Boolean,
         taskListener: IDrawTask.TaskListener
     ): IDrawTask {
-        mDisp = mContext!!.getDisplayer()
+        val ctx = mContext ?: throw IllegalStateException("mContext not set")
+        mDisp = ctx.getDisplayer()
         mDisp!!.setSize(width, height)
         val displayMetrics: DisplayMetrics = context.resources.displayMetrics
         mDisp!!.setDensities(displayMetrics.density, displayMetrics.densityDpi, displayMetrics.scaledDensity)
-        mDisp!!.resetSlopPixel(mContext!!.scaleTextSize)
+        mDisp!!.resetSlopPixel(ctx.scaleTextSize)
         mDisp!!.setHardwareAccelerated(isHardwareAccelerated)
         val task: IDrawTask = if (useDrawingCache) {
             CacheManagingDrawTask(
-                timer, mContext!!, taskListener,
+                timer, ctx, taskListener,
                 1024 * 1024 * AndroidUtils.getMemoryClass(context) / 3
             )
         } else {
-            DrawTask(timer, mContext!!, taskListener)
+            DrawTask(timer, ctx, taskListener)
         }
         task.setParser(mParser)
         task.prepare()
@@ -478,8 +483,9 @@ class DrawHandler(
     }
 
     fun seekTo(ms: Long?) {
+        if (ms == null) return
         mInSeekingAction = true
-        mDesireSeekingTime = ms!!
+        mDesireSeekingTime = ms
         removeMessages(UPDATE)
         removeMessages(RESUME)
         removeMessages(SEEK_POS)
@@ -488,7 +494,7 @@ class DrawHandler(
 
     fun addDanmaku(item: BaseDanmaku) {
         drawTask?.let {
-            item.flags = mContext!!.mGlobalFlagValues
+            item.flags = mContext?.mGlobalFlagValues
             item.setTimer(timer)
             it.addDanmaku(item)
             obtainMessage(Msg.NOTIFY_RENDERING.what).sendToTarget()
@@ -538,8 +544,9 @@ class DrawHandler(
 
     fun draw(canvas: Canvas): RenderingState {
         if (drawTask == null) return mRenderingState
-        mDisp!!.setExtraData(canvas)
-        mRenderingState.set(drawTask!!.draw(mDisp!!))
+        val disp = mDisp ?: return mRenderingState
+        disp.setExtraData(canvas)
+        mRenderingState.set(drawTask!!.draw(disp))
         recordRenderingTime()
         return mRenderingState
     }
@@ -582,7 +589,7 @@ class DrawHandler(
                     sendEmptyMessage(Msg.NOTIFY_RENDERING.what)
                 }
             } catch (e: InterruptedException) {
-                e.printStackTrace()
+                Thread.currentThread().interrupt()
             }
         } else {
             if (dTime == INDEFINITE_TIME) {
@@ -604,7 +611,6 @@ class DrawHandler(
             val dtime = mDrawTimes.last() - mDrawTimes.first()
             dtime / frames
         } catch (e: Exception) {
-            e.printStackTrace()
             0
         }
     }
@@ -623,9 +629,9 @@ class DrawHandler(
     fun getDisplayer(): IDisplayer? = mDisp
 
     fun notifyDispSizeChanged(width: Int, height: Int) {
-        if (mDisp == null) return
-        if (mDisp!!.width != width || mDisp!!.height != height) {
-            mDisp!!.setSize(width, height)
+        val disp = mDisp ?: return
+        if (disp.width != width || disp.height != height) {
+            disp.setSize(width, height)
             obtainMessage(Msg.NOTIFY_DISP_SIZE_CHANGED.what, true).sendToTarget()
         }
     }

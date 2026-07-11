@@ -36,7 +36,7 @@ class AndroidFileSource : IDataSource<InputStream> {
         try {
             inStream = BufferedInputStream(FileInputStream(file))
         } catch (e: FileNotFoundException) {
-            e.printStackTrace()
+            // File not found
         }
     }
 
@@ -57,9 +57,9 @@ class AndroidFileSource : IDataSource<InputStream> {
             url.openConnection()
             inStream = BufferedInputStream(url.openStream())
         } catch (e: MalformedURLException) {
-            e.printStackTrace()
+            // Invalid URL
         } catch (e: IOException) {
-            e.printStackTrace()
+            // IO error
         }
     }
 

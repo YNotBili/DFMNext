@@ -45,7 +45,7 @@ class BiliProtobufDanmakuParser : BaseDanmakuParser() {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                // Protobuf parse error, skip
             }
         }
 
@@ -108,7 +108,6 @@ class BiliProtobufDanmakuParser : BaseDanmakuParser() {
             item.setTimer(mTimer)
             return item
         } catch (e: Exception) {
-            e.printStackTrace()
             return null
         }
     }

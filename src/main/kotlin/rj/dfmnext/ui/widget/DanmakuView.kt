@@ -127,7 +127,7 @@ class DanmakuView @JvmOverloads constructor(
             try {
                 handlerThread.join(500)
             } catch (e: InterruptedException) {
-                e.printStackTrace()
+                Thread.currentThread().interrupt()
             }
             handlerThread.quit()
         }
@@ -162,14 +162,15 @@ class DanmakuView @JvmOverloads constructor(
 
     override fun prepare(parser: BaseDanmakuParser?, config: DanmakuContext) {
         prepare()
-        mHandler!!.setConfig(config)
-        mHandler!!.setParser(parser!!)
-        mHandler!!.setCallback(mCallback)
-        mHandler!!.prepare()
+        val h = mHandler ?: return
+        h.setConfig(config)
+        h.setParser(parser!!)
+        h.setCallback(mCallback)
+        h.prepare()
     }
 
     override fun isPrepared(): Boolean {
-        return mHandler != null && mHandler!!.isPrepared()
+        return mHandler?.isPrepared() ?: false
     }
 
     override fun getConfig(): DanmakuContext? {
@@ -181,14 +182,15 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     private fun fps(): Float {
+        val times = mDrawTimes ?: return 0f
         val lastTime = SystemClock.uptimeMillis()
-        mDrawTimes!!.addLast(lastTime)
-        val dtime = (lastTime - mDrawTimes!!.first).toFloat()
-        val frames = mDrawTimes!!.size
+        times.addLast(lastTime)
+        val dtime = (lastTime - times.first).toFloat()
+        val frames = times.size
         if (frames > MAX_RECORD_SIZE) {
-            mDrawTimes!!.removeFirst()
+            times.removeFirst()
         }
-        return if (dtime > 0) mDrawTimes!!.size * ONE_SECOND / dtime else 0.0f
+        return if (dtime > 0) times.size * ONE_SECOND / dtime else 0.0f
     }
 
     override fun drawDanmakus(): Long {
@@ -212,7 +214,7 @@ class DanmakuView @JvmOverloads constructor(
                 try {
                     mDrawMonitor.wait(200)
                 } catch (e: InterruptedException) {
-                    if (!mDanmakuVisible || mHandler == null || mHandler!!.isStop()) {
+                    if (!mDanmakuVisible || mHandler == null || mHandler?.isStop() == true) {
                         break
                     } else {
                         Thread.currentThread().interrupt()
@@ -245,7 +247,7 @@ class DanmakuView @JvmOverloads constructor(
             mClearFlag = false
         } else {
             if (mHandler != null) {
-                val rs = mHandler!!.draw(canvas)
+                val rs = mHandler?.draw(canvas) ?: return
                 if (mShowFps) {
                     if (mDrawTimes == null) {
                         mDrawTimes = LinkedList()
@@ -273,7 +275,7 @@ class DanmakuView @JvmOverloads constructor(
     override fun toggle() {
         if (isSurfaceCreated) {
             if (mHandler == null) start()
-            else if (mHandler!!.isStop()) resume()
+            else if (mHandler?.isStop() == true) resume()
             else pause()
         }
     }
@@ -286,16 +288,16 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     override fun resume() {
-        if (mHandler != null && mHandler!!.isPrepared()) {
-            mHandler!!.removeCallbacks(mResumeRunnable)
+        val h = mHandler
+        if (h != null && h.isPrepared()) {
+            h.removeCallbacks(mResumeRunnable)
             mResumeTryCount = 0
             try {
-                mHandler!!.postDelayed(mResumeRunnable, 50)
+                h.postDelayed(mResumeRunnable, 50)
             } catch (_: IllegalStateException) {
-                // Handler thread already dead, restart instead
                 restart()
             }
-        } else if (mHandler == null) {
+        } else if (h == null) {
             restart()
         }
     }
@@ -317,7 +319,7 @@ class DanmakuView @JvmOverloads constructor(
         if (mHandler == null) {
             prepare()
         } else {
-            mHandler!!.removeCallbacks(mResumeRunnable)
+            mHandler?.removeCallbacks(mResumeRunnable)
         }
         mHandler?.obtainMessage(DrawHandler.START, position)?.sendToTarget()
     }
@@ -328,14 +330,14 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     override fun seekTo(ms: Long?) {
-        if (mHandler != null && mHandler!!.isPrepared()) {
-            mHandler!!.seekTo(ms)
+        if (mHandler?.isPrepared() == true) {
+            mHandler?.seekTo(ms)
         }
     }
 
     override fun setSpeed(speed: Float) {
-        if (mHandler != null && mHandler!!.isPrepared()) {
-            mHandler!!.setSpeed(speed)
+        if (mHandler?.isPrepared() == true) {
+            mHandler?.setSpeed(speed)
         }
     }
 
@@ -360,14 +362,12 @@ class DanmakuView @JvmOverloads constructor(
     override fun showAndResumeDrawTask(position: Long?) {
         mDanmakuVisible = true
         mClearFlag = false
-        mHandler ?: return
-        mHandler!!.showDanmakus(position)
+        mHandler?.showDanmakus(position)
     }
 
     override fun hide() {
         mDanmakuVisible = false
-        mHandler ?: return
-        mHandler!!.hideDanmakus(false)
+        mHandler?.hideDanmakus(false)
     }
 
     override fun hideAndPauseDrawTask(): Long {

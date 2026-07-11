@@ -19,6 +19,7 @@ import rj.dfmnext.danmaku.model.objectpool.Pools
 import rj.dfmnext.danmaku.renderer.IRenderer.RenderingState
 import rj.dfmnext.danmaku.util.DanmakuUtils
 import rj.dfmnext.danmaku.util.SystemClock
+import rj.dfmnext.danmaku.util.isScrollRL
 
 class CacheManagingDrawTask(
     timer: DanmakuTimer,
@@ -96,7 +97,7 @@ class CacheManagingDrawTask(
         if (mCacheManager == null) {
             start()
         }
-        mCacheManager!!.seek(mills)
+        mCacheManager?.seek(mills)
     }
 
     override fun start() {
@@ -123,9 +124,9 @@ class CacheManagingDrawTask(
     }
 
     override fun prepare() {
-        assert(mParser != null)
-        loadDanmakus(mParser!!)
-        mCacheManager!!.begin()
+        val parser = mParser ?: return
+        loadDanmakus(parser)
+        mCacheManager?.begin()
     }
 
     inner class CacheManager(private val mMaxSize: Int, private var mScreenSize: Int = 3) {
@@ -196,6 +197,8 @@ class CacheManagingDrawTask(
             synchronized(mDrawingNotify) {
                 mDrawingNotify.notifyAll()
             }
+            evictAll()
+            clearCachePool()
             if (mHandler != null) {
                 mHandler!!.pause()
                 mHandler = null
@@ -204,7 +207,7 @@ class CacheManagingDrawTask(
                 try {
                     _mThread!!.join(500)
                 } catch (e: InterruptedException) {
-                    e.printStackTrace()
+                    Thread.currentThread().interrupt()
                 }
                 _mThread!!.quit()
                 _mThread = null
@@ -314,7 +317,9 @@ class CacheManagingDrawTask(
                     mCaches -= oldValue
                 } else {
                     if (forcePush) break
-                    return false
+                    if (!oldValue.isOutside()) return false
+                    entryRemoved(false, oldValue, item)
+                    mCaches -= oldValue
                 }
             }
             mCaches += item
@@ -335,7 +340,7 @@ class CacheManagingDrawTask(
                         try {
                             mDrawingNotify.wait(30)
                         } catch (e: InterruptedException) {
-                            e.printStackTrace()
+                            Thread.currentThread().interrupt()
                             return
                         }
                     }
@@ -398,7 +403,8 @@ class CacheManagingDrawTask(
                 when (msg.what) {
                     CACHE_PREPARE -> {
                         evictAllNotInScreen()
-                        for (i in 0 until 300) {
+                        val preallocCount = (mMaxSize / (100 * 100 * 4)).coerceIn(100, 800)
+                        for (i in 0 until preallocCount) {
                             mCachePool.release(DrawingCache())
                         }
                         // Java fall-through to CACHE_DISPATCH_ACTIONS
@@ -560,7 +566,7 @@ class CacheManagingDrawTask(
                 var hasException = false
                 do {
                     try {
-                        danmakus = danmakuList!!.subnew(curr, end)
+                        danmakus = danmakuList!!.sub(curr, end)
                     } catch (e: Exception) {
                         hasException = true
                         SystemClock.sleep(10)
@@ -604,7 +610,7 @@ class CacheManagingDrawTask(
 
                     if (currentItem.priority == 0.toByte() && currentItem.isFiltered()) continue
 
-                    if (currentItem.getType() == BaseDanmaku.TYPE_SCROLL_RL) {
+                    if (currentItem.isScrollRL) {
                         val screenIndex = ((currentItem.time - curr) / mContext.mDanmakuFactory.MAX_DANMAKU_DURATION).toInt()
                         if (currScreenIndex == screenIndex) orderInScreen++
                         else {
@@ -619,7 +625,7 @@ class CacheManagingDrawTask(
                                 mDrawingNotify.wait(sleepTime.toLong())
                             }
                         } catch (e: InterruptedException) {
-                            e.printStackTrace()
+                            Thread.currentThread().interrupt()
                             break
                         }
                     }

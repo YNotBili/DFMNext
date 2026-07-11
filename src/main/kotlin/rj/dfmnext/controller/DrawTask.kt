@@ -89,18 +89,13 @@ open class DrawTask(
         item.index = danmakuList!!.size()
         var subAdded = true
         if (mLastBeginMills <= item.time && item.time <= mLastEndMills) {
-            synchronized(danmakus) {
-                @Suppress("ReplaceCallWithOperatorAssignment")
-                subAdded = danmakus.addItem(item)
-            }
+            @Suppress("ReplaceCallWithOperatorAssignment")
+            subAdded = danmakus.addItem(item)
         } else if (item.isLive) {
             subAdded = false
         }
-        var added = false
-        synchronized(danmakuList!!) {
-            @Suppress("ReplaceCallWithOperatorAssignment")
-            added = danmakuList!!.addItem(item)
-        }
+        @Suppress("ReplaceCallWithOperatorAssignment")
+        val added = danmakuList!!.addItem(item)
         if (!subAdded) {
             mLastBeginMills = 0
             mLastEndMills = 0
@@ -124,15 +119,13 @@ open class DrawTask(
     @Synchronized
     override fun removeAllDanmakus(isClearDanmakusOnScreen: Boolean) {
         if (danmakuList == null || danmakuList!!.isEmpty()) return
-        synchronized(danmakuList!!) {
-            if (!isClearDanmakusOnScreen) {
-                val beginMills = mTimer.currMillisecond - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION - 100
-                val endMills = mTimer.currMillisecond + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
-                val tempDanmakus = danmakuList!!.subnew(beginMills, endMills)
-                if (tempDanmakus != null) danmakus = tempDanmakus
-            }
-            danmakuList!!.clear()
+        if (!isClearDanmakusOnScreen) {
+            val beginMills = mTimer.currMillisecond - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION - 100
+            val endMills = mTimer.currMillisecond + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
+            val tempDanmakus = danmakuList!!.subnew(beginMills, endMills)
+            if (tempDanmakus != null) danmakus = tempDanmakus
         }
+        danmakuList!!.clear()
     }
 
     protected open fun onDanmakuRemoved(danmaku: BaseDanmaku) {
@@ -142,14 +135,12 @@ open class DrawTask(
     @Synchronized
     override fun removeAllLiveDanmakus() {
         if (danmakus.isEmpty()) return
-        synchronized(danmakus) {
-            val it = danmakus.iterator()
-            while (it.hasNext()) {
-                val danmaku = it.next()
-                if (danmaku.isLive) {
-                    it.remove()
-                    onDanmakuRemoved(danmaku)
-                }
+        val it = danmakus.iterator()
+        while (it.hasNext()) {
+            val danmaku = it.next()
+            if (danmaku.isLive) {
+                it.remove()
+                onDanmakuRemoved(danmaku)
             }
         }
     }
@@ -178,7 +169,7 @@ open class DrawTask(
     override fun getVisibleDanmakusOnTime(time: Long): IDanmakus {
         val beginMills = time - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION - 100
         val endMills = time + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
-        val subDanmakus = danmakuList?.subnew(beginMills, endMills)
+        val subDanmakus = danmakuList?.sub(beginMills, endMills)
         val visibleDanmakus: IDanmakus = Danmakus()
         if (subDanmakus != null && !subDanmakus.isEmpty()) {
             val iterator = subDanmakus.iterator()
