@@ -157,7 +157,7 @@ class Danmakus : IDanmakus {
         localStart.time = startTime
         localEnd.time = endTime
         @Suppress("UNCHECKED_CAST")
-        localSubItems.setItems(ArrayList((currentItems as TreeSet<BaseDanmaku>).subSet(localStart, true, localEnd, false)))
+        localSubItems.setItems((currentItems as TreeSet<BaseDanmaku>).subSet(localStart, true, localEnd, false))
         return localSubItems
     }
 

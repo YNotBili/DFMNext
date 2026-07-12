@@ -210,8 +210,6 @@ class CacheManagingDrawTask(
                 _mThread!!.quit()
                 _mThread = null
             }
-            evictAll()
-            clearCachePool()
         }
 
         fun resume() {
@@ -576,7 +574,7 @@ class CacheManagingDrawTask(
                 var hasException = false
                 do {
                     try {
-                        danmakus = danmakuList!!.sub(curr, end)
+                        danmakus = danmakuList!!.subnew(curr, end)
                     } catch (e: Exception) {
                         hasException = true
                         SystemClock.sleep(10)
