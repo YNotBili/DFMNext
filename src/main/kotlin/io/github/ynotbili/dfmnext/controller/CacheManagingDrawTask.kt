@@ -197,8 +197,6 @@ class CacheManagingDrawTask(
             synchronized(mDrawingNotify) {
                 mDrawingNotify.notifyAll()
             }
-            evictAll()
-            clearCachePool()
             if (mHandler != null) {
                 mHandler!!.pause()
                 mHandler = null
@@ -212,6 +210,8 @@ class CacheManagingDrawTask(
                 _mThread!!.quit()
                 _mThread = null
             }
+            evictAll()
+            clearCachePool()
         }
 
         fun resume() {
@@ -232,10 +232,14 @@ class CacheManagingDrawTask(
         }
 
         private fun evictAll() {
-            val it = mCaches.iterator()
-            while (it.hasNext()) {
-                val danmaku = it.next()
-                entryRemoved(true, danmaku, null)
+            try {
+                val it = mCaches.iterator()
+                while (it.hasNext()) {
+                    val danmaku = it.next()
+                    entryRemoved(true, danmaku, null)
+                }
+            } catch (_: Exception) {
+                // Iterator may have been invalidated; proceed with clear
             }
             mCaches.clear()
             mRealSize = 0
@@ -246,9 +250,10 @@ class CacheManagingDrawTask(
         }
 
         private fun evictAllNotInScreen(removeAllReferences: Boolean) {
-            val it = mCaches.iterator()
-            while (it.hasNext()) {
-                val danmaku = it.next()
+            val toRemove = mutableListOf<BaseDanmaku>()
+            val snapshot = mCaches.iterator()
+            while (snapshot.hasNext()) {
+                val danmaku = snapshot.next()
                 val cache = danmaku.cache
                 val hasReferences = cache != null && cache.hasReferences()
                 if (removeAllReferences && hasReferences) {
@@ -257,13 +262,16 @@ class CacheManagingDrawTask(
                         cache.destroy()
                     }
                     entryRemoved(true, danmaku, null)
-                    it.remove()
+                    toRemove.add(danmaku)
                     continue
                 }
                 if (!danmaku.hasDrawingCache() || danmaku.isOutside()) {
                     entryRemoved(true, danmaku, null)
-                    it.remove()
+                    toRemove.add(danmaku)
                 }
+            }
+            for (danmaku in toRemove) {
+                mCaches.removeItem(danmaku)
             }
             mRealSize = 0
         }
@@ -310,19 +318,21 @@ class CacheManagingDrawTask(
 
         fun push(item: BaseDanmaku, itemSize: Int, forcePush: Boolean): Boolean {
             val size = itemSize
-            while (mRealSize + size > mMaxSize && mCaches.size() > 0) {
-                val oldValue = mCaches.first() ?: continue
-                if (oldValue.isTimeOut()) {
-                    entryRemoved(false, oldValue, item)
-                    mCaches -= oldValue
-                } else {
-                    if (forcePush) break
-                    if (!oldValue.isOutside()) return false
-                    entryRemoved(false, oldValue, item)
-                    mCaches -= oldValue
+            synchronized(mCaches) {
+                while (mRealSize + size > mMaxSize && mCaches.size() > 0) {
+                    val oldValue = mCaches.first() ?: continue
+                    if (oldValue.isTimeOut()) {
+                        entryRemoved(false, oldValue, item)
+                        mCaches.removeItem(oldValue)
+                    } else {
+                        if (forcePush) break
+                        if (!oldValue.isOutside()) return false
+                        entryRemoved(false, oldValue, item)
+                        mCaches.removeItem(oldValue)
+                    }
                 }
+                mCaches.addItem(item)
             }
-            mCaches += item
             mRealSize += size
             return true
         }
@@ -332,9 +342,10 @@ class CacheManagingDrawTask(
         }
 
         private fun clearTimeOutCaches(time: Long) {
-            val it = mCaches.iterator()
-            while (it.hasNext() && !mEndFlag) {
-                val `val` = it.next()
+            val toRemove = mutableListOf<BaseDanmaku>()
+            val snapshot = mCaches.iterator()
+            while (snapshot.hasNext() && !mEndFlag) {
+                val `val` = snapshot.next()
                 if (`val`.isTimeOut()) {
                     synchronized(mDrawingNotify) {
                         try {
@@ -345,10 +356,13 @@ class CacheManagingDrawTask(
                         }
                     }
                     entryRemoved(false, `val`, null)
-                    it.remove()
+                    toRemove.add(`val`)
                 } else {
                     break
                 }
+            }
+            for (danmaku in toRemove) {
+                mCaches.removeItem(danmaku)
             }
         }
 
@@ -407,15 +421,10 @@ class CacheManagingDrawTask(
                         for (i in 0 until preallocCount) {
                             mCachePool.release(DrawingCache())
                         }
-                        // Java fall-through to CACHE_DISPATCH_ACTIONS
-                        val delayed0 = dispatchAction()
-                        val actualDelayed0 = if (delayed0 <= 0) mContext.mDanmakuFactory.MAX_DANMAKU_DURATION / 2 else delayed0
-                        sendEmptyMessageDelayed(CACHE_DISPATCH_ACTIONS, actualDelayed0)
+                        dispatchAction()
                     }
                     CACHE_DISPATCH_ACTIONS -> {
-                        val delayed = dispatchAction()
-                        val actualDelayed = if (delayed <= 0) mContext.mDanmakuFactory.MAX_DANMAKU_DURATION / 2 else delayed
-                        sendEmptyMessageDelayed(CACHE_DISPATCH_ACTIONS, actualDelayed)
+                        dispatchAction()
                     }
                     CACHE_BUILD_CACHES -> {
                         removeMessages(CACHE_BUILD_CACHES)
@@ -507,41 +516,42 @@ class CacheManagingDrawTask(
             }
 
             private fun dispatchAction(): Long {
+                var delay = -1L
                 if (mCacheTimer.currMillisecond <= mTimer.currMillisecond - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
                     evictAllNotInScreen()
                     mCacheTimer.update(mTimer.currMillisecond)
                     sendEmptyMessage(CACHE_BUILD_CACHES)
-                    return 0
+                } else {
+                    val level = getPoolPercent()
+                    val firstCache = mCaches.first()
+                    val gapTime = if (firstCache != null) firstCache.time - mTimer.currMillisecond else 0
+                    val doubleScreenDuration = mContext.mDanmakuFactory.MAX_DANMAKU_DURATION * 2
+                    if (level < 0.6f && gapTime > mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
+                        mCacheTimer.update(mTimer.currMillisecond)
+                        removeMessages(CACHE_BUILD_CACHES)
+                        sendEmptyMessage(CACHE_BUILD_CACHES)
+                    } else if (level > 0.4f && gapTime < -doubleScreenDuration) {
+                        removeMessages(CACHE_CLEAR_TIMEOUT_CACHES)
+                        sendEmptyMessage(CACHE_CLEAR_TIMEOUT_CACHES)
+                    } else if (level >= 0.9f) {
+                        removeMessages(CACHE_CLEAR_TIMEOUT_CACHES)
+                        sendEmptyMessage(CACHE_CLEAR_TIMEOUT_CACHES)
+                    } else {
+                        val deltaTime = mCacheTimer.currMillisecond - mTimer.currMillisecond
+                        if (firstCache != null && firstCache.isTimeOut() && deltaTime < -mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
+                            mCacheTimer.update(mTimer.currMillisecond)
+                            sendEmptyMessage(CACHE_CLEAR_OUTSIDE_CACHES)
+                            sendEmptyMessage(CACHE_BUILD_CACHES)
+                        } else if (deltaTime > doubleScreenDuration) {
+                            delay = mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
+                        } else {
+                            removeMessages(CACHE_BUILD_CACHES)
+                            sendEmptyMessage(CACHE_BUILD_CACHES)
+                        }
+                    }
                 }
-                val level = getPoolPercent()
-                val firstCache = mCaches.first()
-                val gapTime = if (firstCache != null) firstCache.time - mTimer.currMillisecond else 0
-                val doubleScreenDuration = mContext.mDanmakuFactory.MAX_DANMAKU_DURATION * 2
-                if (level < 0.6f && gapTime > mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
-                    mCacheTimer.update(mTimer.currMillisecond)
-                    removeMessages(CACHE_BUILD_CACHES)
-                    sendEmptyMessage(CACHE_BUILD_CACHES)
-                    return 0
-                } else if (level > 0.4f && gapTime < -doubleScreenDuration) {
-                    removeMessages(CACHE_CLEAR_TIMEOUT_CACHES)
-                    sendEmptyMessage(CACHE_CLEAR_TIMEOUT_CACHES)
-                    return 0
-                }
-
-                if (level >= 0.9f) return 0
-
-                val deltaTime = mCacheTimer.currMillisecond - mTimer.currMillisecond
-                if (firstCache != null && firstCache.isTimeOut() && deltaTime < -mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
-                    mCacheTimer.update(mTimer.currMillisecond)
-                    sendEmptyMessage(CACHE_CLEAR_OUTSIDE_CACHES)
-                    sendEmptyMessage(CACHE_BUILD_CACHES)
-                    return 0
-                } else if (deltaTime > doubleScreenDuration) {
-                    return 0
-                }
-
-                removeMessages(CACHE_BUILD_CACHES)
-                sendEmptyMessage(CACHE_BUILD_CACHES)
+                val actualDelay = if (delay > 0) delay else mContext.mDanmakuFactory.MAX_DANMAKU_DURATION / 2
+                sendEmptyMessageDelayed(CACHE_DISPATCH_ACTIONS, actualDelay)
                 return 0
             }
 

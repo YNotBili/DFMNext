@@ -5,6 +5,7 @@ import io.github.ynotbili.dfmnext.danmaku.model.IDanmakus
 import io.github.ynotbili.dfmnext.danmaku.model.IDisplayer
 import io.github.ynotbili.dfmnext.danmaku.util.DanmakuUtils
 import java.util.TreeSet
+import java.util.concurrent.CopyOnWriteArrayList
 
 class Danmakus : IDanmakus {
 
@@ -22,7 +23,6 @@ class Danmakus : IDanmakus {
     private var endItem: BaseDanmaku? = null
     private var endSubItem: BaseDanmaku? = null
     private var startSubItem: BaseDanmaku? = null
-    private var iterator: DanmakuIterator
     private var mSize: Int = 0
     private var mSortType: Int = ST_BY_TIME
     private var mComparator: DanmakuComparator? = null
@@ -34,7 +34,7 @@ class Danmakus : IDanmakus {
 
     constructor(sortType: Int, duplicateMergingEnabled: Boolean) {
         if (sortType == ST_BY_LIST) {
-            items = ArrayList()
+            items = CopyOnWriteArrayList()
         } else {
             mDuplicateMergingEnabled = duplicateMergingEnabled
             val comparator = DanmakuComparator(sortType, duplicateMergingEnabled)
@@ -43,16 +43,15 @@ class Danmakus : IDanmakus {
         }
         mSortType = sortType
         mSize = 0
-        iterator = DanmakuIterator(items!!)
     }
 
     constructor(items: MutableCollection<BaseDanmaku>) {
-        iterator = DanmakuIterator(items)
         setItems(items)
     }
 
     constructor(duplicateMergingEnabled: Boolean) : this(ST_BY_TIME, duplicateMergingEnabled)
 
+    @Synchronized
     fun setItems(newItems: MutableCollection<BaseDanmaku>?) {
         if (newItems == null) {
             items = null
@@ -72,14 +71,15 @@ class Danmakus : IDanmakus {
             mSortType = ST_BY_LIST
         }
         mSize = targetItems.size
-        iterator.setDatas(targetItems)
     }
 
+    @Synchronized
     override fun iterator(): MutableIterator<BaseDanmaku> {
-        iterator.reset()
-        return iterator
+        val currentItems = items ?: return mutableListOf<BaseDanmaku>().iterator()
+        return ArrayList(currentItems).iterator()
     }
 
+    @Synchronized
     override fun addItem(item: BaseDanmaku): Boolean {
         val currentItems = items ?: return false
         return try {
@@ -94,6 +94,7 @@ class Danmakus : IDanmakus {
         }
     }
 
+    @Synchronized
     override fun removeItem(item: BaseDanmaku): Boolean {
         val currentItems = items ?: return false
         if (item.isOutside()) {
@@ -109,9 +110,6 @@ class Danmakus : IDanmakus {
 
     private fun subset(startTime: Long, endTime: Long): MutableCollection<BaseDanmaku>? {
         if (mSortType == ST_BY_LIST || items == null || items!!.isEmpty()) return null
-        if (subItems == null) {
-            subItems = Danmakus(mDuplicateMergingEnabled)
-        }
         if (startSubItem == null) {
             startSubItem = createItem("start")
         }
@@ -121,11 +119,11 @@ class Danmakus : IDanmakus {
         startSubItem!!.time = startTime
         endSubItem!!.time = endTime
         @Suppress("UNCHECKED_CAST")
-        return (items as TreeSet<BaseDanmaku>).subSet(startSubItem!!, true, endSubItem!!, false)
+        return ArrayList((items as TreeSet<BaseDanmaku>).subSet(startSubItem!!, true, endSubItem!!, false))
     }
 
     override fun subnew(startTime: Long, endTime: Long): IDanmakus {
-        val sub = subset(startTime, endTime)
+        val sub = synchronized(this) { subset(startTime, endTime) }
         if (sub.isNullOrEmpty()) return Danmakus(ArrayList())
         return Danmakus(ArrayList(sub))
     }
@@ -159,7 +157,7 @@ class Danmakus : IDanmakus {
         localStart.time = startTime
         localEnd.time = endTime
         @Suppress("UNCHECKED_CAST")
-        localSubItems.setItems((currentItems as TreeSet<BaseDanmaku>).subSet(localStart, true, localEnd, false))
+        localSubItems.setItems(ArrayList((currentItems as TreeSet<BaseDanmaku>).subSet(localStart, true, localEnd, false)))
         return localSubItems
     }
 
@@ -176,13 +174,14 @@ class Danmakus : IDanmakus {
 
     private fun createItem(text: String): BaseDanmaku = SentinelDanmaku(text)
 
+    @Synchronized
     override fun size(): Int = mSize
 
+    @Synchronized
     override fun clear() {
         items?.let {
             it.clear()
             mSize = 0
-            iterator = DanmakuIterator(it)
         }
         if (subItems != null) {
             subItems = null
@@ -191,6 +190,7 @@ class Danmakus : IDanmakus {
         }
     }
 
+    @Synchronized
     override fun first(): BaseDanmaku? {
         val currentItems = items ?: return null
         if (currentItems.isEmpty()) return null
@@ -200,6 +200,7 @@ class Danmakus : IDanmakus {
         }
     }
 
+    @Synchronized
     override fun last(): BaseDanmaku? {
         val currentItems = items ?: return null
         if (currentItems.isEmpty()) return null
@@ -209,8 +210,10 @@ class Danmakus : IDanmakus {
         }
     }
 
+    @Synchronized
     override fun contains(item: BaseDanmaku): Boolean = items?.contains(item) ?: false
 
+    @Synchronized
     override fun isEmpty(): Boolean = items?.isEmpty() ?: true
 
     private fun setDuplicateMergingEnabled(enable: Boolean) {
@@ -226,47 +229,6 @@ class Danmakus : IDanmakus {
             subItems = Danmakus(enable)
         }
         subItems!!.setDuplicateMergingEnabled(enable)
-    }
-
-    // Inner iterator class
-    private inner class DanmakuIterator(private var mData: MutableCollection<BaseDanmaku>?) : MutableIterator<BaseDanmaku> {
-
-        private var it: MutableIterator<BaseDanmaku>? = null
-        private var mIteratorUsed = false
-
-        @Synchronized
-        fun reset() {
-            if (!mIteratorUsed && it != null) return
-            it = if (mData != null && mSize > 0) mData!!.iterator() else null
-            mIteratorUsed = false
-        }
-
-        @Synchronized
-        fun setDatas(datas: MutableCollection<BaseDanmaku>?) {
-            if (mData !== datas) {
-                mIteratorUsed = false
-                it = null
-            }
-            mData = datas
-        }
-
-        @Synchronized
-        override fun next(): BaseDanmaku {
-            mIteratorUsed = true
-            return it!!.next()
-        }
-
-        @Synchronized
-        override fun hasNext(): Boolean = it?.hasNext() ?: false
-
-        @Synchronized
-        override fun remove() {
-            mIteratorUsed = true
-            it?.let { iter ->
-                iter.remove()
-                mSize--
-            }
-        }
     }
 
     // Comparator
