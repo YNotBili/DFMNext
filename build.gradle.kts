@@ -9,6 +9,9 @@ android {
             minorApiLevel = 1
         }
     }
+    defaultConfig {
+        minSdk = 16
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

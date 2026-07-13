@@ -72,8 +72,8 @@ class DanmakuFilters {
             val startTime = SystemClock.uptimeMillis()
             while (it.hasNext()) {
                 try {
-            val item = it.next()
-                    if (item?.isTimeOut() == true) {
+                    val item = it.next()
+                    if (item.isTimeOut()) {
                         it.remove()
                     } else {
                         break

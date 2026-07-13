@@ -28,20 +28,13 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
     private var mCacheManager: ((BaseDanmaku) -> Unit)? = null
     private var mOnDanmakuShownListener: IRenderer.OnDanmakuShownListener? = null
 
-    private val mLastDrawnDanmakus = arrayOfNulls<BaseDanmaku>(15)
-    private var mLastDrawnIndex = 0
+    private val mDrawnSet = HashSet<DanmakuKey>(64)
     private val mSpecialDanmakusToDraw = ArrayList<BaseDanmaku>()
 
-    private fun isExactDuplicate(a: BaseDanmaku, b: BaseDanmaku): Boolean {
-        if (a === b) return false
-        if (a.getType() != b.getType()) return false
-        if (a.getLeft().compareTo(b.getLeft()) != 0) return false
-        if (a.getTop().compareTo(b.getTop()) != 0) return false
-        if (a.textColor != b.textColor) return false
-        if (a.textSize != b.textSize) return false
-        if (a.text == null || a.text != b.text) return false
-        return true
-    }
+    private data class DanmakuKey(
+        val type: Int, val left: Float, val top: Float,
+        val textColor: Int, val textSize: Float, val text: CharSequence?
+    )
 
     override fun clear() {
         clearRetainer()
@@ -67,20 +60,22 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
         val itr = danmakus.iterator()
         var orderInScreen = 0
         mStartTimer.update(SystemClock.uptimeMillis())
+        val frameStartMs = SystemClock.uptimeMillis()
         val sizeInScreen = danmakus.size()
         var drawItem: BaseDanmaku? = null
         var specialDanmakuCount = 0
         mSpecialDanmakusToDraw.clear()
-
-        for (i in mLastDrawnDanmakus.indices) {
-            mLastDrawnDanmakus[i] = null
-        }
-        mLastDrawnIndex = 0
+        mDrawnSet.clear()
 
         while (itr.hasNext()) {
 
-            val item = itr.next() ?: continue
+            val item = itr.next()
             drawItem = item
+
+            // Frame budget: skip remaining items if we've spent >12ms
+            if (SystemClock.uptimeMillis() - frameStartMs > 12) {
+                break
+            }
 
             if (!item.hasPassedFilter()) {
                 mContext.mDanmakuFilters.filter(item, orderInScreen, sizeInScreen, mStartTimer, false, mContext)
@@ -122,33 +117,30 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                     continue
                 }
 
-                var isDuplicate = false
-                for (cachedItem in mLastDrawnDanmakus) {
-                    if (cachedItem != null && isExactDuplicate(cachedItem, item)) {
-                        isDuplicate = true
-                        break
-                    }
-                }
-                if (isDuplicate) {
+                // O(1) HashSet dedup replacing O(15) ring buffer
+                val key = DanmakuKey(item.getType(), item.getLeft(), item.getTop(), item.textColor, item.textSize, item.text)
+                if (!mDrawnSet.add(key)) {
                     continue
                 }
-
-                mLastDrawnDanmakus[mLastDrawnIndex] = item
-                mLastDrawnIndex = (mLastDrawnIndex + 1) % mLastDrawnDanmakus.size
 
                 if (item.isSpecial) {
                     mSpecialDanmakusToDraw.add(item)
                     continue
                 }
 
-                val renderingType = item.draw(disp)
-                if (renderingType == IRenderer.CACHE_RENDERING) {
-                    mRenderingState.cacheHitCount++
-                } else if (renderingType == IRenderer.TEXT_RENDERING) {
-                    mRenderingState.cacheMissCount++
-                    if (mCacheManager != null) {
-                        mCacheManager!!.invoke(item)
+                try {
+                    val renderingType = item.draw(disp)
+                    if (renderingType == IRenderer.CACHE_RENDERING) {
+                        mRenderingState.cacheHitCount++
+                    } else if (renderingType == IRenderer.TEXT_RENDERING) {
+                        mRenderingState.cacheMissCount++
+                        if (mCacheManager != null) {
+                            mCacheManager!!.invoke(item)
+                        }
                     }
+                } catch (_: Exception) {
+                    // Skip bad danmaku, continue rendering rest
+                    continue
                 }
                 mRenderingState.addCount(item.getType(), 1)
                 mRenderingState.addTotalCount(1)
@@ -165,14 +157,18 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
 
         for (i in 0 until mSpecialDanmakusToDraw.size) {
             val specialItem = mSpecialDanmakusToDraw[i]
-            val renderingType = specialItem.draw(disp)
-            if (renderingType == IRenderer.CACHE_RENDERING) {
-                mRenderingState.cacheHitCount++
-            } else if (renderingType == IRenderer.TEXT_RENDERING) {
-                mRenderingState.cacheMissCount++
-                if (mCacheManager != null) {
-                    mCacheManager!!.invoke(specialItem)
+            try {
+                val renderingType = specialItem.draw(disp)
+                if (renderingType == IRenderer.CACHE_RENDERING) {
+                    mRenderingState.cacheHitCount++
+                } else if (renderingType == IRenderer.TEXT_RENDERING) {
+                    mRenderingState.cacheMissCount++
+                    if (mCacheManager != null) {
+                        mCacheManager!!.invoke(specialItem)
+                    }
                 }
+            } catch (_: Exception) {
+                continue
             }
             mRenderingState.addCount(specialItem.getType(), 1)
             mRenderingState.addTotalCount(1)

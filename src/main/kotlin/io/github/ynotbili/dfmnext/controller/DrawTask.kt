@@ -88,7 +88,7 @@ open class DrawTask(
         }
         item.index = danmakuList!!.size()
         var subAdded = true
-        if (mLastBeginMills <= item.time && item.time <= mLastEndMills) {
+        if (item.time in mLastBeginMills..mLastEndMills) {
             @Suppress("ReplaceCallWithOperatorAssignment")
             subAdded = danmakus.addItem(item)
         } else if (item.isLive) {
@@ -151,7 +151,7 @@ open class DrawTask(
         val startTime = SystemClock.uptimeMillis()
         val it = mLiveDanmakus.iterator()
         while (it.hasNext()) {
-            val danmaku = it.next() ?: continue
+            val danmaku = it.next()
             val isTimeout = danmaku.isTimeOut()
             if (isTimeout) {
                 it.remove()
@@ -174,7 +174,7 @@ open class DrawTask(
         if (subDanmakus != null && !subDanmakus.isEmpty()) {
             val iterator = subDanmakus.iterator()
             while (iterator.hasNext()) {
-                val danmaku = iterator.next() ?: continue
+                val danmaku = iterator.next()
                 if (danmaku.isShown() && !danmaku.isOutside()) {
                     visibleDanmakus += danmaku
                 }
@@ -242,7 +242,7 @@ open class DrawTask(
             if (danmakuList!!.first()?.flags == null) {
                 val it = danmakuList!!.iterator()
                 while (it.hasNext()) {
-                    val item = it.next() ?: continue
+                    val item = it.next()
                     item.flags = mContext.mGlobalFlagValues
                 }
             }

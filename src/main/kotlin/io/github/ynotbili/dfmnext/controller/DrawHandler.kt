@@ -61,6 +61,7 @@ class DrawHandler(
     val timer = DanmakuTimer()
     private var mParser: BaseDanmakuParser? = null
     var drawTask: IDrawTask? = null
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
     private val mDrawTaskMonitor = Object()
     private var mDanmakuView: IDanmakuView? = null
     private var mDanmakusVisible = true
@@ -68,7 +69,7 @@ class DrawHandler(
     private val mRenderingState = RenderingState()
     private val mDrawTimes = ArrayDeque<Long>()
     private var mThread: UpdateThread? = null
-    private val mUpdateInNewThread: Boolean
+    private val mUpdateInNewThread: Boolean = Runtime.getRuntime().availableProcessors() > 3
     private var mCordonTime = 30L
     private var mCordonTime2 = 60L
     private var mFrameUpdateRate = 16L
@@ -80,14 +81,14 @@ class DrawHandler(
     private var mRemainingTime = 0L
     private var mInSyncAction = false
     private var mInWaitingState = false
-    private val mIdleSleep: Boolean
+    private val mIdleSleep: Boolean =
+        true // DeviceUtils.isProblemBoxDevice() replaced: assume not a problem device
     private var mSpeedOffsetNoRender = 0L
     private var mSpeedOffsetRender = 0L
     private var mSpeed = 1.0f
+    private var mAdaptiveConfigDone = false
 
     init {
-        mUpdateInNewThread = Runtime.getRuntime().availableProcessors() > 3
-        mIdleSleep = true // DeviceUtils.isProblemBoxDevice() replaced: assume not a problem device
         bindView(view)
         if (danmakuVisibile) {
             showDanmakus(null)
@@ -370,12 +371,20 @@ class DrawHandler(
             if (gapTime > 2000 || mRenderingState.consumingTime > mCordonTime || averageTime > mCordonTime) {
                 d = gapTime
                 gapTime = 0
+            } else if (gapTime > 500) {
+                // Aggressive catch-up: 50% of gap per frame, capped at 200ms
+                d = minOf(gapTime / 2, 200L)
+                d = maxOf(d, mCordonTime)
+                mSpeedOffsetRender += (d * (mSpeed - 1)).toLong()
+                d = (d * mSpeed).toLong()
+                gapTime -= d
+                mLastDeltaTime = d
             } else {
                 d = averageTime + gapTime / mFrameUpdateRate
                 d = maxOf(mFrameUpdateRate, d)
                 d = minOf(mCordonTime, d)
                 val a = d - mLastDeltaTime
-                if (a > 3 && a < 8 && mLastDeltaTime >= mFrameUpdateRate && mLastDeltaTime <= mCordonTime) {
+                if (a in 4..<8 && mLastDeltaTime >= mFrameUpdateRate && mLastDeltaTime <= mCordonTime) {
                     d = mLastDeltaTime
                 } else {
                     mSpeedOffsetRender += (d * (mSpeed - 1)).toLong()
@@ -465,7 +474,8 @@ class DrawHandler(
         mDisp = ctx.getDisplayer()
         mDisp!!.setSize(width, height)
         val displayMetrics: DisplayMetrics = context.resources.displayMetrics
-        mDisp!!.setDensities(displayMetrics.density, displayMetrics.densityDpi, displayMetrics.scaledDensity)
+        val scaledDensity = displayMetrics.density * context.resources.configuration.fontScale
+        mDisp!!.setDensities(displayMetrics.density, displayMetrics.densityDpi, scaledDensity)
         mDisp!!.resetSlopPixel(ctx.scaleTextSize)
         mDisp!!.setHardwareAccelerated(isHardwareAccelerated)
         val task: IDrawTask = if (useDrawingCache) {
@@ -609,7 +619,15 @@ class DrawHandler(
         if (frames <= 0) return 0
         return try {
             val dtime = mDrawTimes.last() - mDrawTimes.first()
-            dtime / frames
+            val avg = dtime / frames
+            if (!mAdaptiveConfigDone && frames >= 30 && avg > 16) {
+                mCordonTime = maxOf(33, (avg * 2.5f).toLong())
+                mCordonTime2 = (mCordonTime * 2.5f).toLong()
+                mFrameUpdateRate = maxOf(16, avg / 15 * 15)
+                mThresholdTime = mFrameUpdateRate + 3
+                mAdaptiveConfigDone = true
+            }
+            avg
         } catch (e: Exception) {
             0
         }

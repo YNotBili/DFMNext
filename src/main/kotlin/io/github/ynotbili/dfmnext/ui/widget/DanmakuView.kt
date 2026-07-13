@@ -46,6 +46,7 @@ class DanmakuView @JvmOverloads constructor(
     private var mShowFps = false
     private var mDanmakuVisible = true
     protected var mDrawingThreadType = IDanmakuView.THREAD_TYPE_NORMAL_PRIORITY
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
     private val mDrawMonitor = Object()
     private var mDrawFinished = false
     private var mRequestRender = false
@@ -53,6 +54,7 @@ class DanmakuView @JvmOverloads constructor(
     private var mDrawTimes: LinkedList<Long>? = null
     private var mClearFlag = false
     private var mResumeTryCount = 0
+    private var mLastDrawDuration = 0L
 
     private val mResumeRunnable: Runnable = Runnable {
         if (mHandler == null) return@Runnable
@@ -73,9 +75,9 @@ class DanmakuView @JvmOverloads constructor(
     }
 
     init {
+        @Suppress("DEPRECATION")
         mUiThreadId = Thread.currentThread().id
         setBackgroundColor(Color.TRANSPARENT)
-        setDrawingCacheBackgroundColor(Color.TRANSPARENT)
         useDrawColorToClear = true
         mTouchHelper = DanmakuTouchHelper.instance(this)
     }
@@ -185,7 +187,7 @@ class DanmakuView @JvmOverloads constructor(
         val times = mDrawTimes ?: return 0f
         val lastTime = SystemClock.uptimeMillis()
         times.addLast(lastTime)
-        val dtime = (lastTime - times.first).toFloat()
+        val dtime = (lastTime - times.first()).toFloat()
         val frames = times.size
         if (frames > MAX_RECORD_SIZE) {
             times.removeFirst()
@@ -196,9 +198,10 @@ class DanmakuView @JvmOverloads constructor(
     override fun drawDanmakus(): Long {
         if (!isSurfaceCreated) return 0
         if (!isShown()) return -1
+        mLastDrawDuration = 0
         val stime = SystemClock.uptimeMillis()
         lockCanvas()
-        return SystemClock.uptimeMillis() - stime
+        return SystemClock.uptimeMillis() - stime + mLastDrawDuration
     }
 
     private fun postInvalidateCompat() {
@@ -242,6 +245,7 @@ class DanmakuView @JvmOverloads constructor(
             super.onDraw(canvas)
             return
         }
+        val drawStart = SystemClock.uptimeMillis()
         if (mClearFlag) {
             canvas.clearCanvas()
             mClearFlag = false
@@ -262,6 +266,7 @@ class DanmakuView @JvmOverloads constructor(
                 }
             }
         }
+        mLastDrawDuration = SystemClock.uptimeMillis() - drawStart
         mRequestRender = false
         unlockCanvasAndPost()
     }
@@ -377,7 +382,7 @@ class DanmakuView @JvmOverloads constructor(
 
     override fun clear() {
         if (!isViewReady()) return
-        if (!mDanmakuVisible || Thread.currentThread().id == mUiThreadId) {
+        if (!mDanmakuVisible || @Suppress("DEPRECATION") Thread.currentThread().id == mUiThreadId) {
             mClearFlag = true
             postInvalidateCompat()
         } else {

@@ -1,10 +1,12 @@
+@file:Suppress("unused")
+
 package io.github.ynotbili.dfmnext.controller
 
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
-import android.util.Pair
+
 import io.github.ynotbili.dfmnext.danmaku.model.AbsDisplayer
 import io.github.ynotbili.dfmnext.danmaku.model.BaseDanmaku
 import io.github.ynotbili.dfmnext.danmaku.model.DanmakuTimer
@@ -20,6 +22,8 @@ import io.github.ynotbili.dfmnext.danmaku.renderer.IRenderer.RenderingState
 import io.github.ynotbili.dfmnext.danmaku.util.DanmakuUtils
 import io.github.ynotbili.dfmnext.danmaku.util.SystemClock
 import io.github.ynotbili.dfmnext.danmaku.util.isScrollRL
+import kotlin.math.max
+import kotlin.math.min
 
 class CacheManagingDrawTask(
     timer: DanmakuTimer,
@@ -34,6 +38,7 @@ class CacheManagingDrawTask(
 
     private lateinit var mCacheTimer: DanmakuTimer
 
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
     private val mDrawingNotify = Object()
 
     init {
@@ -48,9 +53,9 @@ class CacheManagingDrawTask(
         mCacheTimer.update(timer.currMillisecond)
     }
 
-    override fun addDanmaku(danmaku: BaseDanmaku) {
-        super.addDanmaku(danmaku)
-        mCacheManager?.addDanmaku(danmaku)
+    override fun addDanmaku(item: BaseDanmaku) {
+        super.addDanmaku(item)
+        mCacheManager?.addDanmaku(item)
     }
 
     override fun invalidateDanmaku(item: BaseDanmaku, remeasure: Boolean) {
@@ -255,7 +260,7 @@ class CacheManagingDrawTask(
                 val cache = danmaku.cache
                 val hasReferences = cache != null && cache.hasReferences()
                 if (removeAllReferences && hasReferences) {
-                    if (cache!!.get() != null) {
+                    if (cache.get() != null) {
                         mRealSize -= cache.size()
                         cache.destroy()
                     }
@@ -315,9 +320,8 @@ class CacheManagingDrawTask(
         }
 
         fun push(item: BaseDanmaku, itemSize: Int, forcePush: Boolean): Boolean {
-            val size = itemSize
             synchronized(mCaches) {
-                while (mRealSize + size > mMaxSize && mCaches.size() > 0) {
+                while (mRealSize + itemSize > mMaxSize && mCaches.size() > 0) {
                     val oldValue = mCaches.first() ?: continue
                     if (oldValue.isTimeOut()) {
                         entryRemoved(false, oldValue, item)
@@ -331,7 +335,7 @@ class CacheManagingDrawTask(
                 }
                 mCaches.addItem(item)
             }
-            mRealSize += size
+            mRealSize += itemSize
             return true
         }
 
@@ -449,12 +453,12 @@ class CacheManagingDrawTask(
                         val pair = msg.obj as Pair<BaseDanmaku, Boolean>?
                         if (pair != null) {
                             val cacheitem = pair.first
-                            if (pair.second == true) {
+                            if (pair.second) {
                                 cacheitem.requestFlags = cacheitem.requestFlags or BaseDanmaku.FLAG_REQUEST_REMEASURE
                                 cacheitem.measureResetFlag++
                             }
                             cacheitem.requestFlags = cacheitem.requestFlags or BaseDanmaku.FLAG_REQUEST_INVALIDATE
-                            if (pair.second != true && cacheitem.hasDrawingCache() && cacheitem.cache?.hasReferences() != true) {
+                            if (!pair.second && cacheitem.hasDrawingCache() && cacheitem.cache?.hasReferences() != true) {
                                 val cache = DanmakuUtils.buildDanmakuDrawingCache(cacheitem, mDisp, cacheitem.cache as DrawingCache)
                                 cacheitem.cache = cache
                                 push(cacheitem, 0, true)
@@ -475,12 +479,11 @@ class CacheManagingDrawTask(
                     CACHE_SEEK -> {
                         val seekMills = msg.obj as? Long
                         if (seekMills != null) {
-                            val seekCacheTime = seekMills
                             val oldCacheTime = mCacheTimer.currMillisecond
-                            mCacheTimer.update(seekCacheTime)
+                            mCacheTimer.update(seekMills)
                             mSeekedFlag = true
                             val firstCacheTime = getFirstCacheTime()
-                            if (seekCacheTime > oldCacheTime || firstCacheTime - seekCacheTime > mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
+                            if (seekMills > oldCacheTime || firstCacheTime - seekMills > mContext.mDanmakuFactory.MAX_DANMAKU_DURATION) {
                                 evictAllNotInScreen()
                             } else {
                                 clearTimeOutCaches()
@@ -566,7 +569,7 @@ class CacheManagingDrawTask(
 
             private fun prepareCaches(repositioned: Boolean): Long {
                 val curr = mCacheTimer.currMillisecond
-                var end = curr + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION * mScreenSize
+                val end = curr + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION * mScreenSize
                 if (end < mTimer.currMillisecond) return 0
                 val startTime = SystemClock.uptimeMillis()
                 var danmakus: IDanmakus? = null
@@ -592,12 +595,12 @@ class CacheManagingDrawTask(
                 }
                 val deltaTime = first.time - mTimer.currMillisecond
                 var sleepTime = 30 + 10 * deltaTime / mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
-                sleepTime = Math.max(0, Math.min(100, sleepTime))
+                sleepTime = max(0, min(100, sleepTime))
                 if (repositioned) sleepTime = 0
 
                 val itr = danmakus.iterator()
                 var item: BaseDanmaku? = null
-                var consumingTime = 0L
+                var consumingTime: Long
                 var orderInScreen = 0
                 var currScreenIndex = 0
                 val sizeInScreen = danmakus.size()
@@ -630,7 +633,7 @@ class CacheManagingDrawTask(
                     if (!repositioned) {
                         try {
                             synchronized(mDrawingNotify) {
-                                mDrawingNotify.wait(sleepTime.toLong())
+                                mDrawingNotify.wait(sleepTime)
                             }
                         } catch (e: InterruptedException) {
                             Thread.currentThread().interrupt()
@@ -667,6 +670,7 @@ class CacheManagingDrawTask(
                 } catch (e: OutOfMemoryError) {
                     if (cache != null) mCachePool.release(cache)
                     item.cache = null
+                    evictAllNotInScreen(true)
                     return false
                 } catch (e: Exception) {
                     if (cache != null) mCachePool.release(cache)

@@ -28,6 +28,9 @@ class Danmakus : IDanmakus {
     private var mComparator: DanmakuComparator? = null
     private var mDuplicateMergingEnabled: Boolean = false
 
+    @Volatile private var mSnapshotDirty = true
+    private var mCachedSnapshot: List<BaseDanmaku> = emptyList()
+
     constructor() : this(ST_BY_TIME, false)
 
     constructor(sortType: Int) : this(sortType, false)
@@ -56,6 +59,7 @@ class Danmakus : IDanmakus {
         if (newItems == null) {
             items = null
             mSize = 0
+            mSnapshotDirty = true
             return
         }
         val targetItems: MutableCollection<BaseDanmaku>
@@ -71,12 +75,37 @@ class Danmakus : IDanmakus {
             mSortType = ST_BY_LIST
         }
         mSize = targetItems.size
+        mSnapshotDirty = true
     }
 
     @Synchronized
     override fun iterator(): MutableIterator<BaseDanmaku> {
         val currentItems = items ?: return mutableListOf<BaseDanmaku>().iterator()
-        return ArrayList(currentItems).iterator()
+        val snapshotIter = if (mSortType == ST_BY_LIST) {
+            ArrayList(currentItems).iterator()
+        } else {
+            if (mSnapshotDirty) {
+                mCachedSnapshot = ArrayList(currentItems)
+                mSnapshotDirty = false
+            }
+            mCachedSnapshot.toMutableList().iterator()
+        }
+        return object : MutableIterator<BaseDanmaku> {
+            private var lastItem: BaseDanmaku? = null
+            override fun hasNext() = snapshotIter.hasNext()
+            override fun next(): BaseDanmaku {
+                val item = snapshotIter.next()
+                lastItem = item
+                return item
+            }
+            override fun remove() {
+                snapshotIter.remove()
+                lastItem?.let {
+                    currentItems.remove(it)
+                    mSize--
+                }
+            }
+        }
     }
 
     @Synchronized
@@ -85,6 +114,7 @@ class Danmakus : IDanmakus {
         return try {
             if (currentItems.add(item)) {
                 mSize++
+                mSnapshotDirty = true
                 true
             } else {
                 false
@@ -102,6 +132,7 @@ class Danmakus : IDanmakus {
         }
         return if (currentItems.remove(item)) {
             mSize--
+            mSnapshotDirty = true
             true
         } else {
             false
@@ -182,6 +213,7 @@ class Danmakus : IDanmakus {
         items?.let {
             it.clear()
             mSize = 0
+            mSnapshotDirty = true
         }
         if (subItems != null) {
             subItems = null
@@ -190,22 +222,24 @@ class Danmakus : IDanmakus {
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     @Synchronized
     override fun first(): BaseDanmaku? {
         val currentItems = items ?: return null
         if (currentItems.isEmpty()) return null
         return when {
-            mSortType == ST_BY_LIST -> (@Suppress("UNCHECKED_CAST") currentItems as List<BaseDanmaku>)[0]
+            mSortType == ST_BY_LIST -> (currentItems as List<BaseDanmaku>)[0]
             else -> (currentItems as java.util.SortedSet<BaseDanmaku>).first()
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     @Synchronized
     override fun last(): BaseDanmaku? {
         val currentItems = items ?: return null
         if (currentItems.isEmpty()) return null
         return when {
-            mSortType == ST_BY_LIST -> (@Suppress("UNCHECKED_CAST") currentItems as List<BaseDanmaku>)[currentItems.size - 1]
+            mSortType == ST_BY_LIST -> (currentItems as List<BaseDanmaku>)[currentItems.size - 1]
             else -> (currentItems as java.util.SortedSet<BaseDanmaku>).last()
         }
     }
