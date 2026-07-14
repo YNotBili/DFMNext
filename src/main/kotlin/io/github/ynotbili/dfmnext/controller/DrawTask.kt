@@ -246,6 +246,17 @@ open class DrawTask(
                     item.flags = mContext.mGlobalFlagValues
                 }
             }
+            // Pre-measure first batch of danmakus to avoid per-frame measure overhead
+            // Limit to 500 to avoid blocking prepare() for too long on large danmaku sets
+            val measureIt = danmakuList!!.iterator()
+            var measureCount = 0
+            while (measureIt.hasNext() && measureCount < 500) {
+                val item = measureIt.next()
+                if (!item.isMeasured()) {
+                    item.measure(mDisp, true)
+                }
+                measureCount++
+            }
         }
         mContext.mGlobalFlagValues.resetAll()
 

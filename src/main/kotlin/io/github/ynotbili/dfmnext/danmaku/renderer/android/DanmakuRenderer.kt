@@ -28,13 +28,21 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
     private var mCacheManager: ((BaseDanmaku) -> Unit)? = null
     private var mOnDanmakuShownListener: IRenderer.OnDanmakuShownListener? = null
 
-    private val mDrawnSet = HashSet<DanmakuKey>(64)
+    private val mDrawnSet = HashSet<Long>(64)
     private val mSpecialDanmakusToDraw = ArrayList<BaseDanmaku>()
 
-    private data class DanmakuKey(
-        val type: Int, val left: Float, val top: Float,
-        val textColor: Int, val textSize: Float, val text: CharSequence?
-    )
+    /**
+     * Encode danmaku identity into a Long to avoid per-frame object allocation.
+     * Uses type (4 bits) + left (16 bits) + top (16 bits) + color hash (16 bits) + size hash (12 bits).
+     */
+    private fun encodeKey(item: BaseDanmaku): Long {
+        val type = item.getType().toLong() and 0xF
+        val left = (item.getLeft().toLong() and 0xFFFF) shl 4
+        val top = (item.getTop().toLong() and 0xFFFF) shl 20
+        val color = (item.textColor.toLong() and 0xFFFF) shl 36
+        val size = (java.lang.Float.floatToIntBits(item.textSize).toLong() and 0xFFF) shl 52
+        return type or left or top or color or size
+    }
 
     override fun clear() {
         clearRetainer()
@@ -64,6 +72,8 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
         val sizeInScreen = danmakus.size()
         var drawItem: BaseDanmaku? = null
         var specialDanmakuCount = 0
+        var drawnCount = 0
+        val maxDanmakusPerFrame = 80
         mSpecialDanmakusToDraw.clear()
         mDrawnSet.clear()
 
@@ -72,8 +82,9 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
             val item = itr.next()
             drawItem = item
 
-            // Frame budget: skip remaining items if we've spent >12ms
-            if (SystemClock.uptimeMillis() - frameStartMs > 12) {
+            val elapsed = SystemClock.uptimeMillis() - frameStartMs
+            // Hard budget: stop completely after 12ms
+            if (elapsed > 12) {
                 break
             }
 
@@ -117,14 +128,27 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                     continue
                 }
 
-                // O(1) HashSet dedup replacing O(15) ring buffer
-                val key = DanmakuKey(item.getType(), item.getLeft(), item.getTop(), item.textColor, item.textSize, item.text)
+                // O(1) Long-based dedup (no object allocation)
+                val key = encodeKey(item)
                 if (!mDrawnSet.add(key)) {
                     continue
                 }
 
                 if (item.isSpecial) {
                     mSpecialDanmakusToDraw.add(item)
+                    continue
+                }
+
+                // Soft budget: when >8ms elapsed, skip cache misses (TEXT_RENDERING is slow)
+                if (elapsed > 8 && !item.hasDrawingCache()) {
+                    if (mCacheManager != null) {
+                        mCacheManager!!.invoke(item)
+                    }
+                    continue
+                }
+
+                // Hard cap: stop drawing regular danmakus after max count
+                if (drawnCount >= maxDanmakusPerFrame) {
                     continue
                 }
 
@@ -142,6 +166,7 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                     // Skip bad danmaku, continue rendering rest
                     continue
                 }
+                drawnCount++
                 mRenderingState.addCount(item.getType(), 1)
                 mRenderingState.addTotalCount(1)
 

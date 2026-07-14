@@ -231,6 +231,50 @@ class CacheManagingDrawTask(
             }
         }
 
+        /**
+         * Pre-render the first screen of danmakus synchronously.
+         * Called during prepare() so the first frame has cached bitmaps ready.
+         */
+        fun preRenderFirstScreen(danmakuList: IDanmakus?, timer: DanmakuTimer, disp: AbsDisplayer) {
+            if (danmakuList == null || danmakuList.isEmpty()) return
+            val endTime = mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
+            try {
+                val firstScreen = danmakuList.subnew(0, endTime)
+                if (firstScreen.isEmpty()) return
+                val itr = firstScreen.iterator()
+                while (itr.hasNext()) {
+                    val item = itr.next()
+                    if (item.hasDrawingCache()) continue
+                    if (item.priority == 0.toByte() && item.isFiltered()) continue
+                    buildCacheForItem(item)
+                }
+            } catch (_: Exception) {
+                // Ignore errors during pre-rendering
+            }
+        }
+
+        fun buildCacheForItem(item: BaseDanmaku): Boolean {
+            if (!item.isMeasured()) {
+                item.measure(mDisp, true)
+            }
+            var cache: DrawingCache? = null
+            try {
+                cache = mCachePool.acquire()
+                cache = DanmakuUtils.buildDanmakuDrawingCache(item, mDisp, cache)
+                item.cache = cache
+            } catch (e: OutOfMemoryError) {
+                if (cache != null) mCachePool.release(cache)
+                item.cache = null
+                evictAllNotInScreen(true)
+                return false
+            } catch (e: Exception) {
+                if (cache != null) mCachePool.release(cache)
+                item.cache = null
+                return false
+            }
+            return true
+        }
+
         fun getPoolPercent(): Float {
             if (mMaxSize == 0) return 0f
             return mRealSize / mMaxSize.toFloat()
@@ -684,25 +728,7 @@ class CacheManagingDrawTask(
             }
 
             fun createCache(item: BaseDanmaku): Boolean {
-                if (!item.isMeasured()) {
-                    item.measure(mDisp, true)
-                }
-                var cache: DrawingCache? = null
-                try {
-                    cache = mCachePool.acquire()
-                    cache = DanmakuUtils.buildDanmakuDrawingCache(item, mDisp, cache)
-                    item.cache = cache
-                } catch (e: OutOfMemoryError) {
-                    if (cache != null) mCachePool.release(cache)
-                    item.cache = null
-                    evictAllNotInScreen(true)
-                    return false
-                } catch (e: Exception) {
-                    if (cache != null) mCachePool.release(cache)
-                    item.cache = null
-                    return false
-                }
-                return true
+                return buildCacheForItem(item)
             }
 
             private fun buildCache(item: BaseDanmaku, forceInsert: Boolean): Byte {
