@@ -55,8 +55,8 @@ class DrawHandler(
 
     private var pausedPosition = 0L
     @Volatile private var quitFlag = true
-    private var mTimeBase = 0L
-    private var mReady = false
+    @Volatile private var mTimeBase = 0L
+    @Volatile private var mReady = false
     private var mCallback: Callback? = null
     val timer = DanmakuTimer()
     private var mParser: BaseDanmakuParser? = null
@@ -76,11 +76,11 @@ class DrawHandler(
     @Suppress("unused")
     private var mThresholdTime = 0L
     private var mLastDeltaTime = 0L
-    private var mInSeekingAction = false
+    @Volatile private var mInSeekingAction = false
     private var mDesireSeekingTime = 0L
-    private var mRemainingTime = 0L
+    @Volatile private var mRemainingTime = 0L
     private var mInSyncAction = false
-    private var mInWaitingState = false
+    @Volatile private var mInWaitingState = false
     private val mIdleSleep: Boolean =
         true // DeviceUtils.isProblemBoxDevice() replaced: assume not a problem device
     private var mSpeedOffsetNoRender = 0L
@@ -142,6 +142,10 @@ class DrawHandler(
                     if (start == null) {
                         timer.update(getCurrentTime())
                         drawTask!!.requestClear()
+                        drawTask!!.requestClearRetainer()
+                        mContext?.mGlobalFlagValues?.updateVisibleFlag()
+                        mRenderingState.reset()
+                        quitUpdateThread() // Recreate thread to completely flush state, mimicking pause/resume
                     } else {
                         drawTask!!.start()
                         drawTask!!.seek(start)
@@ -153,6 +157,8 @@ class DrawHandler(
                     mDanmakuView!!.drawDanmakus()
                 }
                 notifyRendering()
+                removeMessages(UPDATE)
+                sendEmptyMessage(UPDATE)
                 if (resume) {
                     val startTime = msg.obj as? Long
                     pausedPosition = startTime ?: 0
@@ -168,15 +174,21 @@ class DrawHandler(
                 quitFlag = true
                 quitUpdateThread()
                 val position = msg.obj as Long
-                val deltaMs = position - timer.currMillisecond
-                mTimeBase -= deltaMs
                 timer.update(position)
+                mRemainingTime = 0
+                mSpeedOffsetNoRender = 0
+                mSpeedOffsetRender = 0
+                mLastDeltaTime = 0
                 mContext?.mGlobalFlagValues?.updateMeasureFlag()
                 drawTask?.seek(position)
                 pausedPosition = position
                 resumePlayback()
             }
-            Msg.RESUME -> { resumePlayback() }
+            Msg.RESUME -> {
+                if (quitFlag) {
+                    resumePlayback()
+                }
+            }
             Msg.UPDATE -> {
                 if (mUpdateInNewThread) {
                     updateInNewThread()
@@ -363,40 +375,36 @@ class DrawHandler(
         mInSyncAction = true
         var d = 0L
         val time = startMS - mTimeBase
-        if (!mDanmakusVisible || mRenderingState.nothingRendered || mInWaitingState) {
-            timer.update(time + mSpeedOffsetNoRender + mSpeedOffsetRender)
+        val gapTime = time - timer.currMillisecond
+        if (!mDanmakusVisible || mInWaitingState || (mRenderingState.nothingRendered && gapTime > 1000)) {
+            // Direct wall-clock sync: only when invisible, waiting, or idle for >1s
+            val targetTime = time + mSpeedOffsetNoRender + mSpeedOffsetRender
+            if (targetTime > timer.currMillisecond || mInSeekingAction) {
+                timer.update(targetTime)
+            }
             mSpeedOffsetNoRender += (mFrameUpdateRate * (mSpeed - 1)).toLong()
             mRemainingTime = 0
             mCallback?.updateTimer(timer)
         } else {
-            var gapTime = time - timer.currMillisecond
-            val averageTime = maxOf(mFrameUpdateRate, getAverageRenderingTime())
-            if (gapTime > 2000 || mRenderingState.consumingTime > mCordonTime || averageTime > mCordonTime) {
-                d = gapTime
-                gapTime = 0
-            } else if (gapTime > 500) {
-                // Aggressive catch-up: 50% of gap per frame, capped at 200ms
-                d = minOf(gapTime / 2, 200L)
-                d = maxOf(d, mCordonTime)
+            var gap = gapTime
+            if (gap > 2000) {
+                // Very large gap: direct sync to wall-clock
+                d = gap
+                gap = 0
+            } else if (gap > 0) {
+                // Timer behind: proportional catch-up
+                d = maxOf(gap / 5, mCordonTime)
                 mSpeedOffsetRender += (d * (mSpeed - 1)).toLong()
                 d = (d * mSpeed).toLong()
-                gapTime -= d
+                gap -= d
                 mLastDeltaTime = d
             } else {
-                d = averageTime + gapTime / mFrameUpdateRate
-                d = maxOf(mFrameUpdateRate, d)
-                d = minOf(mCordonTime, d)
-                val a = d - mLastDeltaTime
-                if (a in 4..<8 && mLastDeltaTime >= mFrameUpdateRate && mLastDeltaTime <= mCordonTime) {
-                    d = mLastDeltaTime
-                } else {
-                    mSpeedOffsetRender += (d * (mSpeed - 1)).toLong()
-                    d = (d * mSpeed).toLong()
-                }
-                gapTime -= d
+                // Timer ahead or on time: advance at frame rate only
+                d = mFrameUpdateRate
+                gap -= d
                 mLastDeltaTime = d
             }
-            mRemainingTime = gapTime
+            mRemainingTime = gap
             timer.add(d)
         }
         mCallback?.updateTimer(timer)
@@ -581,6 +589,9 @@ class DrawHandler(
                 mDrawTaskMonitor.notifyAll()
             }
             mDrawTimes.clear()
+            removeMessages(UPDATE)
+            sendEmptyMessage(UPDATE)
+        } else {
             removeMessages(UPDATE)
             sendEmptyMessage(UPDATE)
         }

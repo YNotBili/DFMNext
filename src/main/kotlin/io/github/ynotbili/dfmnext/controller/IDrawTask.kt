@@ -31,4 +31,5 @@ interface IDrawTask {
     fun setParser(parser: BaseDanmakuParser?)
     fun invalidateDanmaku(item: BaseDanmaku, remeasure: Boolean)
     fun requestHide()
+    fun requestClearRetainer()
 }

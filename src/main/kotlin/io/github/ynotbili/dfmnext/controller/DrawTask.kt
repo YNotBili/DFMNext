@@ -325,7 +325,7 @@ open class DrawTask(
         mIsHidden = false
     }
 
-    fun requestClearRetainer() {
+    override fun requestClearRetainer() {
         clearRetainerFlag = true
     }
 

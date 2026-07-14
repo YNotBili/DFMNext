@@ -73,7 +73,6 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
         var drawItem: BaseDanmaku? = null
         var specialDanmakuCount = 0
         var drawnCount = 0
-        val maxDanmakusPerFrame = 80
         mSpecialDanmakusToDraw.clear()
         mDrawnSet.clear()
 
@@ -139,18 +138,8 @@ class DanmakuRenderer(private val mContext: DanmakuContext) : IRenderer {
                     continue
                 }
 
-                // Soft budget: when >8ms elapsed, skip cache misses (TEXT_RENDERING is slow)
-                if (elapsed > 8 && !item.hasDrawingCache()) {
-                    if (mCacheManager != null) {
-                        mCacheManager!!.invoke(item)
-                    }
-                    continue
-                }
 
-                // Hard cap: stop drawing regular danmakus after max count
-                if (drawnCount >= maxDanmakusPerFrame) {
-                    continue
-                }
+
 
                 try {
                     val renderingType = item.draw(disp)

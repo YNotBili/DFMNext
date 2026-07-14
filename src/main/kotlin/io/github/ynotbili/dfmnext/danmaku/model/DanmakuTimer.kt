@@ -2,7 +2,7 @@ package io.github.ynotbili.dfmnext.danmaku.model
 
 class DanmakuTimer {
 
-    var currMillisecond: Long = 0
+    @Volatile var currMillisecond: Long = 0
 
     private var lastInterval: Long = 0
 
