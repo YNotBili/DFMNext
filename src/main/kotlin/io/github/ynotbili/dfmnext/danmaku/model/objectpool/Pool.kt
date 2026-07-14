@@ -10,6 +10,7 @@ interface Poolable<T> {
 interface Pool<T : Poolable<T>> {
     fun acquire(): T?
     fun release(element: T)
+    fun trimToSize(maxSize: Int)
 }
 
 interface PoolableManager<T : Poolable<T>> {
@@ -61,6 +62,18 @@ internal class FinitePool<T : Poolable<T>>(
             manager.onReleased(element)
         }
     }
+
+    override fun trimToSize(maxSize: Int) {
+        if (maxSize < 0) return
+        while (poolCount > maxSize && root != null) {
+            val element = root!!
+            root = element.getNextPoolable()
+            element.setNextPoolable(null)
+            element.setPooled(false)
+            poolCount--
+            manager.onReleased(element)
+        }
+    }
 }
 
 internal class SynchronizedPool<T : Poolable<T>>(
@@ -71,6 +84,8 @@ internal class SynchronizedPool<T : Poolable<T>>(
     override fun acquire(): T? = synchronized(lock) { pool.acquire() }
 
     override fun release(element: T) = synchronized(lock) { pool.release(element) }
+
+    override fun trimToSize(maxSize: Int) = synchronized(lock) { pool.trimToSize(maxSize) }
 }
 
 object Pools {

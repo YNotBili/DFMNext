@@ -29,7 +29,7 @@ class Danmakus : IDanmakus {
     private var mDuplicateMergingEnabled: Boolean = false
 
     @Volatile private var mSnapshotDirty = true
-    private var mCachedSnapshot: List<BaseDanmaku> = emptyList()
+    private var mCachedSnapshot: MutableList<BaseDanmaku> = mutableListOf()
 
     constructor() : this(ST_BY_TIME, false)
 
@@ -81,15 +81,13 @@ class Danmakus : IDanmakus {
     @Synchronized
     override fun iterator(): MutableIterator<BaseDanmaku> {
         val currentItems = items ?: return mutableListOf<BaseDanmaku>().iterator()
-        val snapshotIter = if (mSortType == ST_BY_LIST) {
-            ArrayList(currentItems).iterator()
-        } else {
-            if (mSnapshotDirty) {
-                mCachedSnapshot = ArrayList(currentItems)
-                mSnapshotDirty = false
-            }
-            mCachedSnapshot.toMutableList().iterator()
+        // Use cached snapshot for both modes to avoid repeated ArrayList copies
+        if (mSnapshotDirty || mCachedSnapshot.isEmpty()) {
+            mCachedSnapshot = ArrayList(currentItems)
+            mSnapshotDirty = false
         }
+        val snapshotList = mCachedSnapshot
+        val snapshotIter = snapshotList.iterator()
         return object : MutableIterator<BaseDanmaku> {
             private var lastItem: BaseDanmaku? = null
             override fun hasNext() = snapshotIter.hasNext()

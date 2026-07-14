@@ -80,6 +80,11 @@ class DanmakuView @JvmOverloads constructor(
         setBackgroundColor(Color.TRANSPARENT)
         useDrawColorToClear = true
         mTouchHelper = DanmakuTouchHelper.instance(this)
+        // Ensure the view is completely transparent to touch events
+        // so Compose gesture detectors (pinch-to-zoom etc.) can work
+        isClickable = false
+        isLongClickable = false
+        isFocusable = false
     }
 
     override fun addDanmaku(item: BaseDanmaku) {
@@ -112,6 +117,10 @@ class DanmakuView @JvmOverloads constructor(
     override fun release() {
         stop()
         mDrawTimes?.clear()
+        mDrawTimes = null
+        mCallback = null
+        mOnDanmakuClickListener = null
+        mTouchHelper = null
     }
 
     override fun stop() {
@@ -123,6 +132,12 @@ class DanmakuView @JvmOverloads constructor(
         mHandler = null
         unlockCanvasAndPost()
         h?.quit()
+        // Wait a bit for the quit message to be processed
+        try {
+            Thread.sleep(50)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         val handlerThread = mHandlerThread
         if (handlerThread != null) {
             mHandlerThread = null
@@ -131,7 +146,7 @@ class DanmakuView @JvmOverloads constructor(
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
-            handlerThread.quit()
+            handlerThread.quitSafely()
         }
     }
 
@@ -329,9 +344,15 @@ class DanmakuView @JvmOverloads constructor(
         mHandler?.obtainMessage(DrawHandler.START, position)?.sendToTarget()
     }
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // Don't dispatch touch events to children or self
+        // This ensures Compose gesture detectors (pinch-to-zoom, etc.) can receive events
+        return false
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        mTouchHelper?.onTouchEvent(event)
-        return super.onTouchEvent(event)
+        // Never consume touch events - let them propagate to Compose
+        return false
     }
 
     override fun seekTo(ms: Long?) {

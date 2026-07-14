@@ -123,7 +123,7 @@ open class DrawTask(
             val beginMills = mTimer.currMillisecond - mContext.mDanmakuFactory.MAX_DANMAKU_DURATION - 100
             val endMills = mTimer.currMillisecond + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
             val tempDanmakus = danmakuList!!.subnew(beginMills, endMills)
-            if (tempDanmakus != null) danmakus = tempDanmakus
+            danmakus = tempDanmakus
         }
         danmakuList!!.clear()
     }
@@ -160,7 +160,7 @@ open class DrawTask(
             } else {
                 break
             }
-            if (!isTimeout || SystemClock.uptimeMillis() - startTime > msec) {
+            if (SystemClock.uptimeMillis() - startTime > msec) {
                 break
             }
         }
@@ -225,7 +225,7 @@ open class DrawTask(
         mRenderer.release()
     }
 
-    open override fun prepare() {
+    override fun prepare() {
         assert(mParser != null)
         loadDanmakus(mParser!!)
         mLastBeginMills = 0
@@ -274,9 +274,7 @@ open class DrawTask(
             var endMills = timer.currMillisecond + mContext.mDanmakuFactory.MAX_DANMAKU_DURATION
             if (mLastBeginMills > beginMills || timer.currMillisecond > mLastEndMills) {
                 val subDanmakus = danmakuList!!.sub(beginMills, endMills)
-                if (subDanmakus != null) {
-                    danmakus = subDanmakus
-                }
+                danmakus = subDanmakus
                 mLastBeginMills = beginMills
                 mLastEndMills = endMills
             } else {

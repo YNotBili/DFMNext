@@ -62,12 +62,12 @@ class DanmakuFilters {
 
     class DuplicateMergingFilter : BaseDanmakuFilter<Void?>() {
 
-        protected val blockedDanmakus: IDanmakus = Danmakus(Danmakus.ST_BY_LIST)
+        protected val blockedDanmakus: LinkedHashSet<BaseDanmaku> = LinkedHashSet()
 
         protected val currentDanmakus: LinkedHashMap<String, BaseDanmaku> = LinkedHashMap()
-        private val passedDanmakus: IDanmakus = Danmakus(Danmakus.ST_BY_LIST)
+        private val passedDanmakus: LinkedHashSet<BaseDanmaku> = LinkedHashSet()
 
-        private fun removeTimeoutDanmakus(danmakus: IDanmakus, limitTime: Long) {
+        private fun removeTimeoutDanmakus(danmakus: LinkedHashSet<BaseDanmaku>, limitTime: Long, forceFullClean: Boolean = false) {
             val it = danmakus.iterator()
             val startTime = SystemClock.uptimeMillis()
             while (it.hasNext()) {
@@ -75,17 +75,17 @@ class DanmakuFilters {
                     val item = it.next()
                     if (item.isTimeOut()) {
                         it.remove()
-                    } else {
+                    } else if (!forceFullClean) {
                         break
                     }
                 } catch (_: Exception) {
                     break
                 }
-                if (SystemClock.uptimeMillis() - startTime > limitTime) break
+                if (!forceFullClean && SystemClock.uptimeMillis() - startTime > limitTime) break
             }
         }
 
-        private fun removeTimeoutDanmakus(danmakus: LinkedHashMap<String, BaseDanmaku>, limitTime: Int) {
+        private fun removeTimeoutDanmakus(danmakus: LinkedHashMap<String, BaseDanmaku>, limitTime: Int, forceFullClean: Boolean = false) {
             val it = danmakus.entries.iterator()
             val startTime = SystemClock.uptimeMillis()
             while (it.hasNext()) {
@@ -93,13 +93,13 @@ class DanmakuFilters {
                     val entry = it.next()
                     if (entry.value.isTimeOut()) {
                         it.remove()
-                    } else {
+                    } else if (!forceFullClean) {
                         break
                     }
                 } catch (_: Exception) {
                     break
                 }
-                if (SystemClock.uptimeMillis() - startTime > limitTime) break
+                if (!forceFullClean && SystemClock.uptimeMillis() - startTime > limitTime) break
             }
         }
 
@@ -108,11 +108,17 @@ class DanmakuFilters {
             danmaku: BaseDanmaku, index: Int, totalsizeInScreen: Int,
             timer: DanmakuTimer?, fromCachingTask: Boolean
         ): Boolean {
-            removeTimeoutDanmakus(blockedDanmakus, 2)
-            removeTimeoutDanmakus(passedDanmakus, 2)
-            removeTimeoutDanmakus(currentDanmakus, 3)
-            if (danmaku in blockedDanmakus && !danmaku.isOutside()) return true
-            if (danmaku in passedDanmakus) return false
+            // Expensive iterator-based cleanup only during cache building
+            if (fromCachingTask) {
+                val forceFullClean = blockedDanmakus.size > 500 || passedDanmakus.size > 500 || currentDanmakus.size > 500
+                removeTimeoutDanmakus(blockedDanmakus, 10, forceFullClean)
+                removeTimeoutDanmakus(passedDanmakus, 10, forceFullClean)
+                removeTimeoutDanmakus(currentDanmakus, 10, forceFullClean)
+            }
+
+            // Merge logic runs always (HashSet contains is O(1))
+            if (blockedDanmakus.contains(danmaku) && !danmaku.isOutside()) return true
+            if (passedDanmakus.contains(danmaku)) return false
 
             val textStr = danmaku.text.toString()
             if (currentDanmakus.containsKey(textStr)) {
@@ -132,15 +138,15 @@ class DanmakuFilters {
                         original.cache = null
                     }
 
-                    blockedDanmakus -= danmaku
-                    blockedDanmakus += danmaku
+                    blockedDanmakus.remove(danmaku)
+                    blockedDanmakus.add(danmaku)
                     return true
                 }
             }
             danmaku.mOriginalText = danmaku.text
             danmaku.mOriginalTextSize = danmaku.textSize
             currentDanmakus[textStr] = danmaku
-            passedDanmakus += danmaku
+            passedDanmakus.add(danmaku)
             return false
         }
 

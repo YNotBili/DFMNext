@@ -206,13 +206,19 @@ class CacheManagingDrawTask(
                 mHandler!!.pause()
                 mHandler = null
             }
+            // Wait a bit for the quit message to be processed
+            try {
+                Thread.sleep(50)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
             if (_mThread != null) {
                 try {
                     _mThread!!.join(500)
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
                 }
-                _mThread!!.quit()
+                _mThread!!.quitSafely()
                 _mThread = null
             }
         }
@@ -265,6 +271,22 @@ class CacheManagingDrawTask(
                         cache.destroy()
                     }
                     entryRemoved(true, danmaku, null)
+                    toRemove.add(danmaku)
+                    continue
+                }
+                // Also clean up shared caches that are outside the screen
+                if (hasReferences && danmaku.isOutside()) {
+                    @Suppress("SENSELESS_COMPARISON")
+                    if (cache != null) {
+                        cache.decreaseReference()
+                        if (!cache.hasReferences()) {
+                            if (cache.get() != null) {
+                                mRealSize -= cache.size()
+                                cache.destroy()
+                            }
+                        }
+                    }
+                    danmaku.cache = null
                     toRemove.add(danmaku)
                     continue
                 }
@@ -475,6 +497,9 @@ class CacheManagingDrawTask(
                     }
                     CACHE_CLEAR_TIMEOUT_CACHES -> {
                         clearTimeOutCaches()
+                        // Trim the pool to release unused DrawingCache objects
+                        val currentSize = mCaches.size()
+                        mCachePool.trimToSize(currentSize / 2)
                     }
                     CACHE_SEEK -> {
                         val seekMills = msg.obj as? Long

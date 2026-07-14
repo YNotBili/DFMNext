@@ -258,6 +258,8 @@ class DrawHandler(
         if (quitLooper) {
             drawTask?.quit()
             mParser?.release()
+            mDanmakuView = null
+            mCallback = null
             if (looper != Looper.getMainLooper()) {
                 looper.quit()
             }
@@ -267,6 +269,7 @@ class DrawHandler(
     private fun quitUpdateThread() {
         val thread = mThread ?: return
         mThread = null
+        thread.quit()  // Set the quit flag for UpdateThread
         synchronized(mDrawTaskMonitor) {
             mDrawTaskMonitor.notifyAll()
         }
